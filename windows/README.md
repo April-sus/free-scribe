@@ -19,7 +19,7 @@ Signing needs a certificate and should happen before any school deployment.
 
 ## Building from source
 
-Three prerequisites, all of them things that fail with unhelpful errors when missing:
+Four prerequisites, each of which fails with an error that does not name itself:
 
 1. **Rust** — <https://rustup.rs>
 2. **Visual Studio Build Tools** with the **Desktop development with C++** workload.
@@ -27,6 +27,12 @@ Three prerequisites, all of them things that fail with unhelpful errors when mis
 3. **LLVM** — `winget install LLVM.LLVM`, then set `LIBCLANG_PATH` to its `bin`
    folder. `whisper-rs-sys` generates bindings with bindgen, which needs libclang.
    Without it: ``Unable to find libclang``.
+4. **CMake** — `winget install Kitware.CMake`. whisper.cpp builds through it.
+   Without it: ``failed to execute command: program not found / is `cmake` not
+   installed?``
+
+Each of those installers updates the PATH of *new* terminals only, so a tool you just
+installed will still look missing in the window you installed it from.
 
 ```powershell
 cd windows\app
