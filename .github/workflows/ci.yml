@@ -24,7 +24,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # The port has not started, so there is nothing to build yet. Without this the
+      # job is permanently red, which trains everyone to ignore a failing CI.
+      - id: check
+        shell: bash
+        run: echo "exists=${{ hashFiles('windows/Cargo.toml') != '' }}" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.check.outputs.exists == 'true'
       - name: Test
+        if: steps.check.outputs.exists == 'true'
         working-directory: windows
         run: cargo test

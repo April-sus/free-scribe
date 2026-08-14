@@ -1,5 +1,10 @@
 import Foundation
+
+// Only present in the macOS 26 SDK. Guarded so the package still builds with an
+// older Xcode — the polish style then reports itself unavailable and falls back.
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// How much the transcript is allowed to differ from what was actually said.
 public enum DictationStyle: String, CaseIterable, Identifiable, Sendable {
@@ -39,11 +44,16 @@ public enum DictationStyle: String, CaseIterable, Identifiable, Sendable {
 public enum Cleanup {
     /// True when `polished` can actually run. Apple Intelligence has to be switched on.
     public static var polishAvailable: Bool {
+        #if canImport(FoundationModels)
         guard #available(macOS 26, *) else { return false }
         return SystemLanguageModel.default.isAvailable
+        #else
+        return false
+        #endif
     }
 
     public static var polishUnavailableReason: String? {
+        #if canImport(FoundationModels)
         guard #available(macOS 26, *) else { return "This needs macOS 26 or later." }
         switch SystemLanguageModel.default.availability {
         case .available: return nil
@@ -52,6 +62,9 @@ public enum Cleanup {
         case .unavailable(.modelNotReady): return "Apple Intelligence is still downloading its model."
         case .unavailable: return "Apple Intelligence is unavailable."
         }
+        #else
+        return "This build was made with an older SDK, which has no on-device model."
+        #endif
     }
 
     public static func apply(_ text: String, style: DictationStyle, spokenCapitals: Bool = true) async -> String {
@@ -290,6 +303,7 @@ public enum Cleanup {
     """
 
     private static func polished(_ text: String) async -> String {
+        #if canImport(FoundationModels)
         guard #available(macOS 26, *), polishAvailable else { return tidied(text) }
 
         do {
@@ -305,6 +319,9 @@ public enum Cleanup {
         } catch {
             return tidied(text)
         }
+        #else
+        return tidied(text)
+        #endif
     }
 
     /// The model can ignore the instructions and answer the dictation, or quietly
