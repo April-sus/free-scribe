@@ -69,6 +69,9 @@ nav button.active { background: color-mix(in srgb, var(--accent) 16%, transparen
 /* Panes */
 main { flex: 1; overflow-y: auto; padding: 24px; }
 .pane { display: flex; flex-direction: column; gap: 20px; max-width: 620px; }
+/* `display` on a class beats the browser's own `[hidden]` rule, so the panes the
+   navigation puts away have to be hidden explicitly. */
+.pane[hidden] { display: none; }
 
 .card { display: flex; flex-direction: column; gap: 8px; }
 .card h2 {
@@ -112,6 +115,9 @@ input[type="text"], select {
   user-select: text;
 }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+/* The shortcut field is recorded into, not typed into. */
+#shortcut { cursor: pointer; user-select: none; }
+#shortcut.capturing { border-color: var(--accent); color: var(--muted); }
 button {
   font: inherit;
   color: inherit;

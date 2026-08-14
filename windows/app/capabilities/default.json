@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core APIs the window needs. Without this the webview may call the app's own commands but not `listen`, so the phase events that drive the download bar, the recording indicator and the error line never arrive.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

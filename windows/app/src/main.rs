@@ -4,6 +4,7 @@
 mod audio;
 mod paste;
 mod settings;
+mod startup;
 mod transcribe;
 
 use audio::AudioHandle;
@@ -44,7 +45,16 @@ pub type Shared = Arc<Mutex<App>>;
 
 impl App {
     fn new() -> App {
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+
+        // Earlier versions let the settings pane save a shortcut that does not parse
+        // (including an empty one). Binding falls back to the default, so leaving the
+        // saved text alone would show one combination while another was really bound.
+        if settings.shortcut.parse::<Shortcut>().is_err() {
+            settings.shortcut = settings::DEFAULT_SHORTCUT.to_string();
+            let _ = settings.save();
+        }
+
         App {
             phase: Phase::Idle,
             stats: Stats::load(),
@@ -150,6 +160,38 @@ fn set_setting(
     Ok(())
 }
 
+/// Lets go of the hotkey while the settings pane is recording a new one. Without
+/// this, pressing the combination that is currently bound would start a dictation
+/// instead of landing in the recorder.
+#[tauri::command]
+fn begin_shortcut_capture(handle: tauri::AppHandle) {
+    let _ = handle.global_shortcut().unregister_all();
+}
+
+/// Ends recording: `shortcut` is the new combination, or `None` to keep the old one.
+/// Either way the hotkey is bound again before returning, so cancelling cannot leave
+/// the app with no way to dictate.
+#[tauri::command]
+fn finish_shortcut_capture(
+    handle: tauri::AppHandle,
+    shared: tauri::State<Shared>,
+    shortcut: Option<String>,
+) -> Result<(), String> {
+    if let Some(candidate) = shortcut {
+        // Checked before saving: an unparseable shortcut would quietly become the
+        // default at the next launch, leaving the settings pane showing a lie.
+        candidate
+            .parse::<Shortcut>()
+            .map_err(|_| format!("{candidate} is not a shortcut this app can use."))?;
+
+        let mut app = shared.lock().unwrap();
+        app.settings.shortcut = candidate;
+        app.settings.save().map_err(|error| error.to_string())?;
+    }
+
+    bind_shortcut(&handle, &shared)
+}
+
 #[tauri::command]
 fn reset_stats(shared: tauri::State<Shared>) {
     Stats::erase();
@@ -170,6 +212,12 @@ fn delete_model(model: String) -> Result<(), String> {
 /// and the tray both reflect it.
 #[tauri::command]
 fn download_model(handle: tauri::AppHandle, shared: tauri::State<Shared>, model: String) {
+    // A second press would start a second thread writing the same partial file, and
+    // the two would truncate each other's work.
+    if matches!(shared.lock().unwrap().phase, Phase::Downloading(_)) {
+        return;
+    }
+
     let shared = Arc::clone(&shared);
 
     std::thread::spawn(move || {
@@ -333,8 +381,18 @@ fn finish_dictation(
                     app.last_transcript = text.clone();
                 }
 
-                paste::insert(&text);
-                set_phase(&handle, &shared, Phase::Idle);
+                // Pasting can fail against a window running at a higher integrity
+                // level. The text is still on the clipboard, so say that rather than
+                // report success into an app where nothing appeared.
+                if paste::insert(&text) {
+                    set_phase(&handle, &shared, Phase::Idle);
+                } else {
+                    set_phase(
+                        &handle,
+                        &shared,
+                        Phase::Error("Copied to the clipboard — press Ctrl+V to insert it.".into()),
+                    );
+                }
             }
             Err(error) => {
                 shared.lock().unwrap().transcriber.unload();
@@ -363,6 +421,20 @@ fn copy_last(shared: tauri::State<Shared>) {
 // MARK: Setup
 
 fn main() {
+    // One copy at a time: `RegisterHotKey` is machine-wide, so a second copy could
+    // never bind hold-to-talk, and two of them fighting over the microphone and the
+    // clipboard is worse than not starting at all.
+    let Some(_instance) = startup::claim_instance() else {
+        return;
+    };
+
+    if let Err(message) = run() {
+        startup::report_fatal(&message);
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
     let shared: Shared = Arc::new(Mutex::new(App::new()));
     let audio = AudioHandle::spawn();
     let _ = transcribe::ensure_models_directory();
@@ -372,24 +444,13 @@ fn main() {
         .manage(Arc::clone(&shared))
         .manage(audio)
         .setup(move |app| {
-            let shortcut: Shortcut = shared
-                .lock()
-                .unwrap()
-                .settings
-                .shortcut
-                .parse()
-                .unwrap_or_else(|_| settings::DEFAULT_SHORTCUT.parse().expect("default shortcut"));
-
-            let handle = app.handle().clone();
-            app.global_shortcut().on_shortcut(shortcut, move |_, _, event| {
-                let shared = handle.state::<Shared>();
-                let audio = handle.state::<AudioHandle>();
-                // Hold to talk: press starts, release inserts.
-                match event.state {
-                    ShortcutState::Pressed => start_dictation(handle.clone(), shared, audio),
-                    ShortcutState::Released => finish_dictation(handle.clone(), shared, audio),
-                }
-            })?;
+            // A shortcut that will not bind is worth saying out loud, but it is not a
+            // reason to refuse to start: every other way in still works, and the user
+            // needs the window open to choose a different one.
+            if let Err(problem) = bind_shortcut(app.handle(), &shared) {
+                eprintln!("{problem}");
+                shared.lock().unwrap().phase = Phase::Error(problem);
+            }
 
             Ok(())
         })
@@ -399,6 +460,8 @@ fn main() {
             styles,
             dictated_marks,
             set_setting,
+            begin_shortcut_capture,
+            finish_shortcut_capture,
             reset_stats,
             stats_path,
             delete_model,
@@ -409,5 +472,58 @@ fn main() {
             copy_last,
         ])
         .run(tauri::generate_context!())
-        .expect("failed to start Free Scribe");
+        .map_err(|error| format!("Free Scribe could not start: {error}"))
+}
+
+/// Binds hold-to-talk to the configured shortcut. The `Err` is text for the status
+/// line, not a fault: the shortcut belongs to the whole machine, so losing it to
+/// another app is an ordinary thing that the user has to be told about.
+fn bind_shortcut(handle: &tauri::AppHandle, shared: &Shared) -> Result<(), String> {
+    let configured = shared.lock().unwrap().settings.shortcut.clone();
+    let shortcut = parse_shortcut(&configured)?;
+
+    // Idempotent on purpose: the same path serves the first bind at startup and
+    // every later change, so whatever was held before is released first.
+    let _ = handle.global_shortcut().unregister_all();
+
+    let target = handle.clone();
+    handle
+        .global_shortcut()
+        .on_shortcut(shortcut, move |_, _, event| {
+            let shared = target.state::<Shared>();
+            let audio = target.state::<AudioHandle>();
+            // Hold to talk: press starts, release inserts.
+            match event.state {
+                ShortcutState::Pressed => start_dictation(target.clone(), shared, audio),
+                ShortcutState::Released => finish_dictation(target.clone(), shared, audio),
+            }
+        })
+        .map_err(|error| {
+            // The plugin flattens the platform error into a string, so its own text is
+            // all there is to go on. On Windows this is `ERROR_HOTKEY_ALREADY_REGISTERED`.
+            let detail = error.to_string();
+            if detail.contains("already registered") {
+                format!(
+                    "{configured} is already taken by another app — choose a different \
+                     shortcut in Settings."
+                )
+            } else {
+                format!("Could not bind {configured}: {detail}")
+            }
+        })
+}
+
+/// Falls back to the built-in shortcut when the saved one no longer parses, so a
+/// hand-edited settings file costs the user their shortcut and not their app.
+fn parse_shortcut(configured: &str) -> Result<Shortcut, String> {
+    if let Ok(shortcut) = configured.parse::<Shortcut>() {
+        return Ok(shortcut);
+    }
+
+    settings::DEFAULT_SHORTCUT.parse::<Shortcut>().map_err(|error| {
+        format!(
+            "Neither {configured} nor the default {} is a usable shortcut: {error}",
+            settings::DEFAULT_SHORTCUT
+        )
+    })
 }

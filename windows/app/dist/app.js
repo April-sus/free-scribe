@@ -149,7 +149,8 @@ function renderModels() {
 
 function render() {
   $("status").textContent = phaseText(state.phase);
-  $("shortcut").value = state.settings.shortcut;
+  // Leave the field alone mid-recording, or a refresh wipes the prompt.
+  if (!capturing) $("shortcut").value = state.settings.shortcut;
   $("spokenCapitals").checked = state.settings.spokenCapitals;
   $("launchAtLogin").checked = state.settings.launchAtLogin;
   fillSelect($("language"), LANGUAGES, state.settings.language);
@@ -176,7 +177,96 @@ for (const [id, key] of [["spokenCapitals", "spokenCapitals"], ["launchAtLogin",
 for (const [id, key] of [["language", "language"], ["inputDevice", "inputDevice"], ["modelPick", "model"]]) {
   $(id).addEventListener("change", (event) => set(key, event.target.value));
 }
-$("shortcut").addEventListener("change", (event) => set("shortcut", event.target.value));
+// MARK: Shortcut recorder
+//
+// Click the field and press the combination you want. The field is read-only: the
+// keys themselves are the input, so there is nothing to type and no way to leave a
+// half-typed shortcut behind.
+
+const MODIFIER_KEYS = new Set([
+  "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+  "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight",
+]);
+
+let capturing = false;
+
+// Tauri accepts the browser's own `code` names, and for letters and digits it also
+// accepts the bare character — so "KeyD" is written out as the "D" a person expects
+// to read, while "F5", "Space" and "ArrowUp" pass straight through.
+function keyName(code) {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return code;
+}
+
+// Modifiers first, then exactly one main key.
+function shortcutFrom(event) {
+  if (MODIFIER_KEYS.has(event.code)) return null; // still waiting for the real key
+
+  const parts = [];
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.metaKey) parts.push("Super");
+
+  // A bare key would be taken from every other app on the machine, so insist on a
+  // modifier rather than letting someone bind the D key itself.
+  if (parts.length === 0) return null;
+
+  parts.push(keyName(event.code));
+  return parts.join("+");
+}
+
+async function beginCapture() {
+  if (capturing) return;
+  capturing = true;
+  $("shortcut").value = "Press the keys you want…";
+  $("shortcut").classList.add("capturing");
+  // Hand the hotkey back to Windows, or pressing the current one starts a dictation.
+  await invoke("begin_shortcut_capture");
+}
+
+async function endCapture(shortcut) {
+  if (!capturing) return;
+  capturing = false;
+  $("shortcut").classList.remove("capturing");
+
+  try {
+    await invoke("finish_shortcut_capture", { shortcut });
+  } catch (error) {
+    state.phase = { kind: "error", value: String(error) };
+    $("status").textContent = phaseText(state.phase);
+  }
+  await refresh();
+}
+
+$("shortcut").addEventListener("focus", beginCapture);
+$("shortcut").addEventListener("blur", () => endCapture(null));
+
+// Switching away mid-recording cancels it. Otherwise the field stays armed while the
+// user is off in another app, and the next key they press here becomes the shortcut.
+window.addEventListener("blur", () => {
+  if (capturing) $("shortcut").blur();
+});
+
+$("shortcut").addEventListener("keydown", (event) => {
+  if (!capturing) return;
+  // Every key belongs to the recording, including Tab and Escape.
+  event.preventDefault();
+
+  if (event.code === "Escape") {
+    $("shortcut").blur();
+    return;
+  }
+
+  const shortcut = shortcutFrom(event);
+  if (shortcut) {
+    endCapture(shortcut).then(() => $("shortcut").blur());
+  } else if (!MODIFIER_KEYS.has(event.code)) {
+    // A key on its own: say why nothing happened instead of ignoring it silently.
+    $("shortcut").value = "Add Ctrl, Alt or Shift…";
+  }
+});
 $("download").addEventListener("click", () => invoke("download_model", { model: state.activeModel }));
 $("reset").addEventListener("click", async () => { await invoke("reset_stats"); refresh(); });
 
