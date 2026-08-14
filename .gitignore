@@ -16,3 +16,6 @@ windows/dist/
 # but ignore them here too in case anyone points a build at the tree.
 *.mlmodelc/
 stats.json
+
+# Rust
+windows/target/

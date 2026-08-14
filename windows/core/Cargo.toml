@@ -1,0 +1,13 @@
+[package]
+name = "free-scribe-core"
+description = "Transcript processing shared with the macOS app: scribe rules, filler cleanup, usage stats, model tiering."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+sysinfo = "0.32"
