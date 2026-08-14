@@ -1,0 +1,30 @@
+name: CI
+
+# The Windows job is the point of this file: the macOS app can be built and tested
+# locally, but the Windows port cannot be, so CI is where that half gets verified.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        working-directory: macos
+        run: swift test
+      - name: Build app bundle
+        working-directory: macos
+        # No signing identity on a runner, so build.sh falls back to ad-hoc.
+        run: ./build.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        working-directory: windows
+        run: cargo test
