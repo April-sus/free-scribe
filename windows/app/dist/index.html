@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Free Scribe</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <header class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /></svg>
+        <div>
+          <h1>Free Scribe</h1>
+          <p id="status">Ready</p>
+        </div>
+      </header>
+
+      <nav id="nav">
+        <button data-pane="dictation" class="active">Dictation</button>
+        <button data-pane="audio">Audio</button>
+        <button data-pane="model">Model</button>
+        <button data-pane="stats">Stats</button>
+        <button data-pane="general">General</button>
+      </nav>
+    </aside>
+
+    <main>
+      <section id="dictation" class="pane">
+        <div class="card">
+          <h2>Shortcut</h2>
+          <div class="rows">
+            <div class="row">
+              <div><strong>Dictation shortcut</strong><small id="shortcut-hint">Hold it to talk, release to insert.</small></div>
+              <input id="shortcut" type="text" spellcheck="false" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Style</h2>
+          <div class="rows" id="styles"></div>
+          <small id="style-detail" class="footnote"></small>
+        </div>
+
+        <div id="scribe-rules" hidden>
+          <div class="card">
+            <h2>Spoken commands</h2>
+            <div class="rows">
+              <div class="row block">
+                <div>Say <strong>command</strong>, then any of:</div>
+                <small id="marks"></small>
+              </div>
+              <div class="row">
+                <div><strong>Allow spoken capitals</strong><small>“command capital y” writes Y, and following single letters spell the rest.</small></div>
+                <input id="spokenCapitals" type="checkbox" />
+              </div>
+            </div>
+            <small class="footnote">The word “command” is required on every one, so dictating “the capital of France” is written out as spoken.</small>
+          </div>
+
+          <div class="card">
+            <h2>Enforced by this mode</h2>
+            <ul class="rules" id="enforced"></ul>
+          </div>
+
+          <div class="card">
+            <h2>Still the supervisor's job</h2>
+            <ul class="rules muted" id="human"></ul>
+            <small class="footnote">Based on the NAPLAN Scribe Rules for the Writing Test. An aid, not a certification — confirm current requirements with your authority.</small>
+          </div>
+        </div>
+      </section>
+
+      <section id="audio" class="pane" hidden>
+        <div class="card">
+          <h2>Input</h2>
+          <div class="rows">
+            <div class="row">
+              <div><strong>Microphone</strong><small>Takes effect on your next dictation.</small></div>
+              <select id="inputDevice"></select>
+            </div>
+            <div class="row">
+              <div><strong>Language</strong><small>Forcing a language is faster and more accurate than detection.</small></div>
+              <select id="language"></select>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="model" class="pane" hidden>
+        <div id="setup-banner" class="banner" hidden>
+          <span id="setup-text"></span>
+          <button id="download">Download</button>
+        </div>
+        <div id="progress-wrap" hidden><progress id="progress" max="1" value="0"></progress></div>
+
+        <div class="card">
+          <h2>Speech model</h2>
+          <div class="rows">
+            <div class="row">
+              <div><strong>Model</strong></div>
+              <select id="modelPick"></select>
+            </div>
+            <div class="row">
+              <div><strong>This PC</strong><small id="machine"></small></div>
+            </div>
+          </div>
+          <small class="footnote">Automatic picks the largest model this machine can run comfortably.</small>
+        </div>
+
+        <div class="card" id="downloaded-card" hidden>
+          <h2>Downloaded</h2>
+          <div class="rows" id="downloaded"></div>
+        </div>
+      </section>
+
+      <section id="stats" class="pane" hidden>
+        <div class="tiles">
+          <div class="tile"><b id="s-words">0</b><small>words spoken</small></div>
+          <div class="tile"><b id="s-saved">—</b><small>saved vs typing</small></div>
+          <div class="tile"><b id="s-count">0</b><small>dictations</small></div>
+        </div>
+
+        <div class="card">
+          <h2>Last 14 days</h2>
+          <div class="chart" id="chart"></div>
+        </div>
+
+        <div class="card">
+          <h2>Detail</h2>
+          <div class="rows">
+            <div class="row"><div><strong>Speaking rate</strong></div><span id="s-wpm">0 wpm</span></div>
+            <div class="row"><div><strong>Time spent talking</strong></div><span id="s-time">0s</span></div>
+            <div class="row"><div><strong>Average dictation</strong></div><span id="s-avg">0 words</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Privacy</h2>
+          <div class="rows">
+            <div class="row">
+              <div><strong>Stored on this PC only</strong><small>One JSON file. No account, no upload, no identifiers.</small></div>
+              <button id="reset">Reset</button>
+            </div>
+          </div>
+          <small class="footnote" id="stats-path"></small>
+        </div>
+      </section>
+
+      <section id="general" class="pane" hidden>
+        <div class="card">
+          <h2>Startup</h2>
+          <div class="rows">
+            <div class="row">
+              <div><strong>Launch at login</strong><small>Starts hidden in the notification area.</small></div>
+              <input id="launchAtLogin" type="checkbox" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>About</h2>
+          <div class="rows">
+            <div class="row"><div><strong>Version</strong><small>Free Scribe 0.1</small></div></div>
+          </div>
+          <small class="footnote">Whisper runs on this machine through whisper.cpp. Nothing you say is uploaded, and there is nothing to pay for.</small>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

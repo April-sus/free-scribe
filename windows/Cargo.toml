@@ -2,7 +2,7 @@
 resolver = "2"
 # The Tauri app crate joins this workspace once the UI work starts; for now the
 # portable logic lives alone so it can be tested without a windowing stack.
-members = ["core"]
+members = ["app","core"]
 
 [workspace.package]
 version = "0.1.0"

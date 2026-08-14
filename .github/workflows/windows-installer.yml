@@ -1,0 +1,37 @@
+name: Windows installer
+
+# Manual on purpose: this builds whisper.cpp from source and bundles the app, so it
+# takes far longer than the test workflow and Windows runner minutes bill at 2x.
+# Trigger with:  gh workflow run "Windows installer"
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # whisper.cpp and the bundler are the slow parts; caching them makes repeat
+      # builds minutes rather than tens of minutes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --locked --version "^2.0"
+
+      - name: Build
+        working-directory: windows/app
+        run: cargo tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: free-scribe-windows
+          if-no-files-found: error
+          path: |
+            windows/target/release/bundle/msi/*.msi
+            windows/target/release/bundle/nsis/*.exe

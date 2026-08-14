@@ -1,0 +1,22 @@
+[package]
+name = "free-scribe-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arboard = "3.6.1"
+cpal = "0.18.1"
+free-scribe-core = { version = "0.1.0", path = "../core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = { version = "2.11.5", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2.3.2"
+ureq = "3.4.0"
+whisper-rs = "0.16.0"
+
+[build-dependencies]
+tauri-build = "2.6.3"
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation"] }
