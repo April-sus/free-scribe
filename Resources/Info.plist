@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Free Scribe</string>
+	<key>CFBundleDisplayName</key>
+	<string>Free Scribe</string>
+	<!-- Deliberately unchanged from the app's original name: the identifier is what
+	     macOS keys Microphone and Accessibility grants, the settings domain and the
+	     model cache against. Renaming it would silently reset all three. -->
+	<key>CFBundleIdentifier</key>
+	<string>local.whisperflow.app</string>
+	<key>CFBundleExecutable</key>
+	<string>FreeScribe</string>
+	<key>CFBundleIconFile</key>
+	<string>FreeScribe</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Free Scribe listens while you hold your dictation shortcut and transcribes your speech on this Mac. Audio is never sent anywhere.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

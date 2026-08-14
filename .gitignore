@@ -1,0 +1,18 @@
+# Build output
+.build/
+*.app/
+.swiftpm/
+Package.resolved
+
+# Windows / Tauri
+windows/target/
+windows/node_modules/
+windows/dist/
+
+# macOS
+.DS_Store
+
+# Models and usage data live in Application Support, never in the repo —
+# but ignore them here too in case anyone points a build at the tree.
+*.mlmodelc/
+stats.json
