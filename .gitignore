@@ -19,3 +19,6 @@ stats.json
 
 # Rust
 windows/target/
+
+# Generated at build time from the real dependency graph.
+THIRD-PARTY-NOTICES.txt

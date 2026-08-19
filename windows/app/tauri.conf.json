@@ -24,7 +24,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
-    "icon": ["icons/icon.ico", "icons/128x128.png"]
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/128x128.png"
+    ],
+    "resources": [
+      "THIRD-PARTY-NOTICES.txt"
+    ]
   }
 }

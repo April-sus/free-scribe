@@ -1,6 +1,6 @@
 # Free Scribe
 
-Wispr Flow's dictation loop, running entirely on your Mac. Hold a shortcut, speak,
+Dictation that runs entirely on your Mac. Hold a shortcut, speak,
 release — the text is typed into whatever app you were in. No cloud, no subscription.
 
 Whisper runs through [WhisperKit](https://github.com/argmaxinc/WhisperKit) (CoreML,

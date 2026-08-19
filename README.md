@@ -18,7 +18,7 @@ lower case, and no punctuation the student did not dictate.
 
 ```
 macos/     Swift + SwiftUI app. Whisper via WhisperKit (CoreML, Neural Engine).
-windows/   Tauri app. Whisper via whisper.cpp. Not started yet.
+windows/   Tauri app. Whisper via whisper.cpp.
 docs/      Rules and behaviour both platforms must agree on.
 ```
 
@@ -44,8 +44,21 @@ See [macos/README.md](macos/README.md) for dictation styles, models and checks.
 
 ## Windows
 
-Not started. Planned as Tauri (Rust core, web UI) with whisper.cpp, so the interface
-matches macOS rather than being rebuilt per platform.
+Tauri (Rust core, web UI) with whisper.cpp, so the interface matches macOS rather than
+being rebuilt per platform.
+
+Installers are built by CI — Actions → **Windows installer** → latest run → Artifacts.
+See [windows/README.md](windows/README.md) to build from source.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Free to use, modify and redistribute, including
+commercially.
+
+`THIRD-PARTY-NOTICES.txt` is generated at build time by `scripts/generate-notices.py`
+from the real dependency graph and ships inside both apps, which is what MIT and
+Apache-2.0 require. CI fails if a dependency arrives under a licence outside
+`windows/deny.toml`.
 
 ## Checks
 

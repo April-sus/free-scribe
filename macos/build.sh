@@ -20,6 +20,12 @@ cp "$BINARY" "$APP/Contents/MacOS/$BIN_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/FreeScribe.icns "$APP/Contents/Resources/FreeScribe.icns"
 
+# MIT and Apache-2.0 require their notices to travel with the binary, so the
+# bundle is not complete without this.
+../scripts/generate-notices.py >/dev/null
+cp ../THIRD-PARTY-NOTICES.txt "$APP/Contents/Resources/"
+cp ../LICENSE "$APP/Contents/Resources/"
+
 # Sign with a real identity, not ad-hoc: an ad-hoc signature changes hash on every
 # build, so macOS revokes Microphone and Accessibility every time you rebuild.
 IDENTITY=$(security find-identity -v -p codesigning | awk '/Apple Development/ {print $2; exit}')

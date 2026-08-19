@@ -20,6 +20,18 @@ jobs:
         # No signing identity on a runner, so build.sh falls back to ad-hoc.
         run: ./build.sh
 
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - name: Check dependency licences
+        working-directory: windows
+        run: cargo deny --manifest-path Cargo.toml check licenses
+      - name: Notices file generates
+        run: ./scripts/generate-notices.py
+
   windows:
     runs-on: windows-latest
     steps:
