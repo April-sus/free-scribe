@@ -43,6 +43,12 @@ jobs:
         run: echo "exists=${{ hashFiles('windows/Cargo.toml') != '' }}" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         if: steps.check.outputs.exists == 'true'
+      - name: Generate third-party notices
+        if: steps.check.outputs.exists == 'true'
+        shell: bash
+        # Not committed: generated from the resolved graph, and Tauri needs it
+        # present because the bundle lists it as a resource.
+        run: python3 scripts/generate-notices.py windows
       - name: Test
         if: steps.check.outputs.exists == 'true'
         working-directory: windows

@@ -22,8 +22,8 @@ cp Resources/FreeScribe.icns "$APP/Contents/Resources/FreeScribe.icns"
 
 # MIT and Apache-2.0 require their notices to travel with the binary, so the
 # bundle is not complete without this.
-../scripts/generate-notices.py >/dev/null
-cp ../THIRD-PARTY-NOTICES.txt "$APP/Contents/Resources/"
+../scripts/generate-notices.py macos >/dev/null
+cp THIRD-PARTY-NOTICES.txt "$APP/Contents/Resources/"
 cp ../LICENSE "$APP/Contents/Resources/"
 
 # Sign with a real identity, not ad-hoc: an ad-hoc signature changes hash on every

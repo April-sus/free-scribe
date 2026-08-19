@@ -24,6 +24,10 @@ jobs:
       - name: Install the Tauri CLI
         run: cargo install tauri-cli --locked --version "^2.0"
 
+      - name: Generate third-party notices
+        shell: bash
+        run: python3 scripts/generate-notices.py windows
+
       - name: Build
         working-directory: windows/app
         run: cargo tauri build

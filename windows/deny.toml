@@ -5,6 +5,13 @@ allow = [
     "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib",
     "Unlicense", "Unicode-3.0", "CC0-1.0",
+    # Boost: permissive, OSI approved, and uniquely does not even require the
+    # notice to be reproduced for binary distribution. clipboard-win, error-code.
+    "BSL-1.0",
+    # Community Data License Agreement, permissive variant. Covers the Mozilla CA
+    # root store shipped by webpki-roots — data rather than code, no attribution
+    # requirement in 2.0.
+    "CDLA-Permissive-2.0",
     # Weak, file-level copyleft. Fine in a distributed binary as long as these
     # crates' own files are not modified — they are not.
     "MPL-2.0",

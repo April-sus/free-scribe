@@ -141,18 +141,25 @@ def render(rust: list[dict], swift: list[dict]) -> str:
 
 
 def main() -> int:
-    target = sys.argv[1] if len(sys.argv) > 1 else "x86_64-pc-windows-msvc"
-    rust = rust_packages(target)
-    swift = swift_packages()
-    text = render(rust, swift)
+    # The macOS app is Swift with no Rust in it, and the Windows app the reverse,
+    # so each bundle gets only the notices that belong to what it actually ships.
+    platform = sys.argv[1] if len(sys.argv) > 1 else "windows"
 
-    # Written where each platform's build can pick it up.
-    for destination in (ROOT / "THIRD-PARTY-NOTICES.txt", ROOT / "windows" / "app" / "THIRD-PARTY-NOTICES.txt"):
+    if platform == "macos":
+        rust, swift = [], swift_packages()
+        destinations = [ROOT / "macos" / "THIRD-PARTY-NOTICES.txt"]
+        if not swift:
+            print("error: no Swift checkouts — run `cd macos && swift build` first", file=sys.stderr)
+            return 1
+    else:
+        rust, swift = rust_packages("x86_64-pc-windows-msvc"), []
+        destinations = [ROOT / "windows" / "app" / "THIRD-PARTY-NOTICES.txt"]
+
+    text = render(rust, swift)
+    for destination in destinations:
         destination.write_text(text, encoding="utf-8")
 
-    print(f"{len(rust)} Rust packages, {len(swift)} Swift packages, {len(text.splitlines())} lines")
-    if not swift:
-        print("warning: no Swift checkouts found — run `cd macos && swift build` first", file=sys.stderr)
+    print(f"{platform}: {len(rust)} Rust, {len(swift)} Swift packages, {len(text.splitlines())} lines")
     return 0
 
 
