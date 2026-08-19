@@ -41,17 +41,24 @@ def rust_packages(target: str) -> list[dict]:
     """Only what actually ships: the app's normal and build dependencies for one
     platform. Dev-dependencies are test-only and never distributed, and packages
     for other platforms are not linked in."""
+    # Explicit pipes and bytes rather than capture_output/text: this has to run
+    # identically on a Windows runner, and a silent empty stdout there is worse
+    # than a loud failure.
     result = subprocess.run(
         [
             "cargo", "metadata", "--format-version", "1",
             "--filter-platform", target,
         ],
-        cwd=ROOT / "windows",
-        capture_output=True,
-        text=True,
-        check=True,
+        cwd=str(ROOT / "windows"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
     )
-    data = json.loads(result.stdout)
+    if result.returncode != 0 or not result.stdout:
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+        sys.exit(f"cargo metadata failed (exit {result.returncode}):\n{stderr[:2000]}")
+
+    data = json.loads(result.stdout.decode("utf-8"))
 
     nodes = {node["id"]: node for node in data["resolve"]["nodes"]}
     by_id = {package["id"]: package for package in data["packages"]}
