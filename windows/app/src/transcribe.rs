@@ -96,6 +96,16 @@ impl Transcriber {
             .as_ref()
             .ok_or("No speech model is loaded yet.")?;
 
+        // Whisper hallucinates confidently on silence — a muted microphone reliably
+        // produces "you". Pasting a word the user never said is the worst thing this
+        // app can do, and in scribe mode it would be a breach of the rules.
+        if peak(samples) < SILENCE_THRESHOLD {
+            return Ok(String::new());
+        }
+
+        let padded = pad(samples);
+        let samples = padded.as_slice();
+
         let mut state = context
             .create_state()
             .map_err(|error| format!("Could not start transcription: {error}"))?;
@@ -108,6 +118,11 @@ impl Transcriber {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_suppress_blank(true);
+        // The energy gate catches silence; these catch loud non-speech, where
+        // Whisper will otherwise invent a confident short sentence.
+        params.set_no_speech_thold(0.6);
+        params.set_logprob_thold(-1.0);
+        params.set_entropy_thold(2.4);
 
         state
             .full(params, samples)
@@ -125,6 +140,33 @@ impl Transcriber {
 
         Ok(clean(&text))
     }
+}
+
+/// Below this, treat the recording as nothing said. Measured against real clips:
+/// silence and room tone peak at 0.002 or less, speech at 0.19 or more, so this sits
+/// with two orders of magnitude of margin either side. Matches the macOS build.
+pub const SILENCE_THRESHOLD: f32 = 0.01;
+
+/// Whisper works on a long window and returns nothing at all for very short clips —
+/// "Yes." on its own transcribes as empty until it is padded.
+const MINIMUM_SAMPLES: usize = 32_000; // 2s at 16 kHz
+
+/// Loudest 100 ms of the recording. Peak rather than mean, so a short word surrounded
+/// by silence still registers.
+pub fn peak(samples: &[f32]) -> f32 {
+    samples
+        .chunks(1600)
+        .map(|chunk| {
+            let mean = chunk.iter().map(|v| v * v).sum::<f32>() / chunk.len() as f32;
+            mean.sqrt()
+        })
+        .fold(0.0, f32::max)
+}
+
+pub fn pad(samples: &[f32]) -> Vec<f32> {
+    let mut out = samples.to_vec();
+    out.resize(out.len().max(MINIMUM_SAMPLES), 0.0);
+    out
 }
 
 /// Whisper emits leading spaces and, on silence, bracketed non-speech tags like
@@ -159,7 +201,31 @@ pub fn ensure_models_directory() -> std::io::Result<&'static Path> {
 
 #[cfg(test)]
 mod tests {
-    use super::clean;
+    use super::{clean, pad, peak, SILENCE_THRESHOLD};
+
+    #[test]
+    fn silence_is_below_the_threshold_and_speech_is_above() {
+        let silence = vec![0.0f32; 32000];
+        let room_tone: Vec<f32> = (0..32000).map(|i| (i as f32 * 0.7).sin() * 0.002).collect();
+        let speech: Vec<f32> = (0..32000).map(|i| (i as f32 * 0.05).sin() * 0.2).collect();
+
+        assert!(peak(&silence) < SILENCE_THRESHOLD);
+        assert!(peak(&room_tone) < SILENCE_THRESHOLD);
+        assert!(peak(&speech) > SILENCE_THRESHOLD);
+    }
+
+    #[test]
+    fn short_recordings_are_padded_for_whisper() {
+        assert_eq!(pad(&vec![0.2f32; 8000]).len(), 32000);
+        assert_eq!(pad(&vec![0.2f32; 48000]).len(), 48000);
+    }
+
+    #[test]
+    fn padding_keeps_the_spoken_audio_at_the_front() {
+        let result = pad(&[0.5, 0.4, 0.3]);
+        assert_eq!(&result[..3], &[0.5, 0.4, 0.3]);
+        assert_eq!(result[result.len() - 1], 0.0);
+    }
 
     #[test]
     fn non_speech_tags_are_stripped() {

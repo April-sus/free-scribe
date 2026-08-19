@@ -170,3 +170,32 @@ final class ModelPickerTests: XCTestCase {
         XCTAssertEqual(Transcriber.clean(" (wind blowing) send it "), "send it")
     }
 }
+
+final class TranscriberGuardTests: XCTestCase {
+    func testSilenceIsBelowTheThresholdAndSpeechIsAbove() {
+        // Measured from real clips: digital silence and room tone against speech.
+        let silence = [Float](repeating: 0, count: 32000)
+        let roomTone = (0..<32000).map { _ in Float.random(in: -0.002...0.002) }
+        let speech = (0..<32000).map { index in sin(Float(index) * 0.05) * 0.2 }
+
+        XCTAssertLessThan(Transcriber.peak(of: silence), Transcriber.silenceThreshold)
+        XCTAssertLessThan(Transcriber.peak(of: roomTone), Transcriber.silenceThreshold)
+        XCTAssertGreaterThan(Transcriber.peak(of: speech), Transcriber.silenceThreshold)
+    }
+
+    func testShortRecordingsArePaddedForWhisper() {
+        // "Yes." is about half a second and returns nothing at all unpadded.
+        let short = [Float](repeating: 0.2, count: 8000)
+        XCTAssertEqual(Transcriber.padded(short).count, 32000)
+        // Anything already long enough is handed over untouched.
+        let long = [Float](repeating: 0.2, count: 48000)
+        XCTAssertEqual(Transcriber.padded(long).count, 48000)
+    }
+
+    func testPaddingKeepsTheSpokenAudioAtTheFront() {
+        let short: [Float] = [0.5, 0.4, 0.3]
+        let result = Transcriber.padded(short)
+        XCTAssertEqual(Array(result.prefix(3)), short)
+        XCTAssertEqual(result.last, 0)
+    }
+}

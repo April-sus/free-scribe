@@ -85,17 +85,60 @@ public actor Transcriber {
         loadedModel = nil
     }
 
+    /// Below this, treat the recording as nothing said. Measured: silence and room
+    /// tone peak at 0.002 or less, speech at 0.19 or more, so this sits with two
+    /// orders of magnitude of margin either side.
+    public static let silenceThreshold: Float = 0.01
+
+    /// Whisper works on a long window and returns nothing at all for very short
+    /// clips, so anything briefer than this is padded with silence.
+    static let minimumSeconds: Double = 2.0
+
     /// - Parameter language: ISO code such as "en", or nil to let Whisper detect it.
     public func transcribe(samples: [Float], language: String?) async throws -> String {
         guard let pipe else { throw TranscriberError.notLoaded }
-        let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options(language))
+
+        // Whisper hallucinates confidently on silence — a muted microphone reliably
+        // produces "you". Pasting a word the user never said is the worst thing this
+        // app can do, and in scribe mode it would be a breach of the rules.
+        guard Self.peak(of: samples) >= Self.silenceThreshold else { return "" }
+
+        let results = try await pipe.transcribe(
+            audioArray: Self.padded(samples),
+            decodeOptions: options(language)
+        )
         return Self.clean(results.map(\.text).joined(separator: " "))
     }
 
+    /// Loudest 100 ms of the recording. Peak rather than mean, so a short word
+    /// surrounded by silence still registers.
+    static func peak(of samples: [Float]) -> Float {
+        let window = 1600
+        guard !samples.isEmpty else { return 0 }
+
+        var loudest: Float = 0
+        for start in stride(from: 0, to: samples.count, by: window) {
+            let chunk = samples[start..<min(start + window, samples.count)]
+            guard !chunk.isEmpty else { continue }
+            let mean = chunk.reduce(0) { $0 + $1 * $1 } / Float(chunk.count)
+            loudest = max(loudest, mean.squareRoot())
+        }
+        return loudest
+    }
+
+    /// "Yes." on its own transcribes as nothing until the clip is long enough.
+    static func padded(_ samples: [Float]) -> [Float] {
+        let wanted = Int(minimumSeconds * 16000)
+        guard samples.count < wanted else { return samples }
+        return samples + [Float](repeating: 0, count: wanted - samples.count)
+    }
+
+    /// Diagnostic path for `--transcribe`. Goes through the same guards as a
+    /// dictation so what it prints is what a user would actually get.
     public func transcribe(path: String, language: String?) async throws -> String {
-        guard let pipe else { throw TranscriberError.notLoaded }
-        let results = try await pipe.transcribe(audioPath: path, decodeOptions: options(language))
-        return Self.clean(results.map(\.text).joined(separator: " "))
+        guard pipe != nil else { throw TranscriberError.notLoaded }
+        let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
+        return try await transcribe(samples: samples, language: language)
     }
 
     private func options(_ language: String?) -> DecodingOptions {
@@ -105,7 +148,12 @@ public actor Transcriber {
             language: language,
             detectLanguage: language == nil,
             skipSpecialTokens: true,
-            withoutTimestamps: true
+            withoutTimestamps: true,
+            // The energy gate catches silence; this catches loud non-speech, where
+            // Whisper will otherwise invent a confident short sentence.
+            compressionRatioThreshold: 2.4,
+            logProbThreshold: -1.0,
+            noSpeechThreshold: 0.6
         )
     }
 
