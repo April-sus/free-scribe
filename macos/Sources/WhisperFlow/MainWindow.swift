@@ -115,8 +115,41 @@ private struct MainView: View {
 }
 
 /// The transcript board: everything dictated this session, click to copy it again.
+/// The two irreversible actions on this pane, each with the reason you might not
+/// want to take it. Nothing here can be undone, so nothing here happens on one click.
+private enum Destruction: Identifiable {
+    case audio
+    case everything
+
+    var id: String { title }
+
+    var title: String {
+        switch self {
+        case .audio: "Delete the saved recordings?"
+        case .everything: "Delete every transcript and recording?"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .audio:
+            "The recordings are what make “Transcribe again” possible. Without them, a transcript that came out wrong can only be fixed by dictating it over. Your transcripts themselves are not touched."
+        case .everything:
+            "Every transcript goes, along with every recording. You will not be able to look back at anything you have dictated, copy it again, or run any of it through the recogniser a second time. This cannot be undone."
+        }
+    }
+
+    var confirm: String {
+        switch self {
+        case .audio: "Delete recordings"
+        case .everything: "Delete everything"
+        }
+    }
+}
+
 private struct HistoryPane: View {
     @ObservedObject var state: AppState
+    @State private var confirming: Destruction?
 
     var body: some View {
         if state.history.entries.isEmpty {
@@ -146,15 +179,28 @@ private struct HistoryPane: View {
             }
             RowDivider()
             Row(title: "Recordings held", detail: byteLabel) {
-                Button("Delete audio") { state.clearAudioCache() }
+                Button("Delete audio") { confirming = .audio }
                     .disabled(AudioCache.bytesUsed() == 0)
             }
             if !state.history.entries.isEmpty {
                 RowDivider()
                 Row(title: "Clear everything", detail: "Removes every transcript and every recording.") {
-                    Button("Clear") { state.clearHistory() }
+                    Button("Clear") { confirming = .everything }
                 }
             }
+        }
+        .alert(item: $confirming) { destruction in
+            Alert(
+                title: Text(destruction.title),
+                message: Text(destruction.explanation),
+                primaryButton: .destructive(Text(destruction.confirm)) {
+                    switch destruction {
+                    case .audio: state.clearAudioCache()
+                    case .everything: state.clearHistory()
+                    }
+                },
+                secondaryButton: .cancel(Text("Keep them"))
+            )
         }
     }
 
@@ -173,11 +219,24 @@ private struct TranscriptRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(transcript.text)
-                .lineLimit(4)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+            if transcript.failed {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.warning)
+                    Text("Transcription failed")
+                        .fontWeight(.medium)
+                }
+                Text(transcript.failureReason ?? "")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(transcript.text)
+                    .lineLimit(4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
 
             HStack(spacing: 8) {
                 Text("\(transcript.date.formatted(date: .abbreviated, time: .shortened)) · \(transcript.style)")
@@ -186,15 +245,25 @@ private struct TranscriptRow: View {
 
                 Spacer(minLength: 8)
 
-                // Always visible. These were drawn only while the pointer was over
-                // the row, which meant nobody could find them.
-                Button("Copy") { state.copyToClipboard(transcript) }
-                    .controlSize(.small)
+                if !transcript.failed {
+                    Button("Copy") { state.copyToClipboard(transcript) }
+                        .controlSize(.small)
+                }
 
                 if transcript.canRetranscribe {
-                    Button("Transcribe again") { state.retranscribe(transcript) }
-                        .controlSize(.small)
-                        .help("Runs the original recording through again")
+                    // A failure is the one case worth pushing, so it gets the
+                    // prominent treatment and everything else stays quiet.
+                    if transcript.failed {
+                        Button("Retry") { state.retranscribe(transcript) }
+                            .controlSize(.small)
+                            .buttonStyle(.borderedProminent)
+                            .tint(Theme.accent)
+                            .help("Runs the original recording through again")
+                    } else {
+                        Button("Transcribe again") { state.retranscribe(transcript) }
+                            .controlSize(.small)
+                            .help("Runs the original recording through again")
+                    }
                 } else {
                     Text("recording cleared")
                         .font(.footnote)
@@ -213,10 +282,17 @@ private struct TranscriptRow: View {
         }
         .padding(.horizontal, Theme.cardPadding)
         .padding(.vertical, 12)
-        .background(hovering ? Theme.accent.opacity(0.05) : .clear)
+        .background(background)
         .onHover { hovering = $0 }
     }
+
+    private var background: Color {
+        if transcript.failed { return Theme.warning.opacity(0.08) }
+        return hovering ? Theme.accent.opacity(0.05) : .clear
+    }
 }
+
+
 
 // MARK: - Sidebar
 

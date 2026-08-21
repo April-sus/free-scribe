@@ -282,3 +282,36 @@ final class AudioCacheTests: XCTestCase {
         XCTAssertEqual(file.length, 16000, "every sample should be written, not a padded or truncated buffer")
     }
 }
+
+final class FailedTranscriptTests: XCTestCase {
+    func testAFailureIsKeptSoItCanBeRetried() {
+        var history = History()
+        let failure = history.recordFailure("Nothing could be made out", style: .tidy)
+
+        XCTAssertTrue(failure.failed)
+        XCTAssertEqual(history.entries.first?.failureReason, "Nothing could be made out")
+        XCTAssertTrue(history.entries.first?.text.isEmpty == true)
+    }
+
+    func testASuccessfulRetryClearsTheFailure() {
+        var history = History()
+        let failure = history.recordFailure("Nothing could be made out", style: .tidy)
+        history.update(failure.id, text: "there it is")
+
+        let entry = history.entries[0]
+        XCTAssertFalse(entry.failed, "a retry that worked must stop offering one")
+        XCTAssertNil(entry.failureReason)
+        XCTAssertEqual(entry.text, "there it is")
+        XCTAssertEqual(entry.id, failure.id, "the id names the recording, so it has to survive the retry")
+    }
+
+    func testEntriesWrittenBeforeFailuresExistedStillDecode() throws {
+        // Old history files have no failureReason key at all.
+        let json = """
+        {"entries":[{"id":"\(UUID().uuidString)","text":"older entry","date":768000000,"style":"Verbatim"}]}
+        """
+        let history = try JSONDecoder().decode(History.self, from: Data(json.utf8))
+        XCTAssertEqual(history.entries.count, 1)
+        XCTAssertFalse(history.entries[0].failed)
+    }
+}

@@ -132,6 +132,11 @@ final class AppState: ObservableObject {
     /// without it, a slow transcription completing after the next recording began
     /// would reset `phase` to idle mid-recording, and the release would then be
     /// ignored, leaving the engine running with no way to stop it.
+    /// A dictation shorter than this that produces nothing is a slip of the finger,
+    /// not a failure worth keeping. Longer than it, somebody spoke and deserves the
+    /// recording back.
+    private static let worthKeepingSeconds = 1.0
+
     private var generation = 0
     private var transcription: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
@@ -202,6 +207,9 @@ final class AppState: ObservableObject {
                 guard token == generation else { return }
 
                 guard !text.isEmpty else {
+                    if seconds >= Self.worthKeepingSeconds {
+                        keepFailure("Nothing could be made out", samples: samples)
+                    }
                     phase = .error("Didn't catch that — nothing was heard")
                     Sounds.play(.failed)
                     pill.flash(self, seconds: 2)
@@ -233,6 +241,9 @@ final class AppState: ObservableObject {
             } catch {
                 guard token == generation else { return }
                 await transcriber.clearState()
+                if seconds >= Self.worthKeepingSeconds {
+                    keepFailure(error.localizedDescription, samples: samples)
+                }
                 Sounds.play(.failed)
                 phase = .error("Something went wrong transcribing that — press the shortcut to try again")
                 pill.flash(self)
@@ -273,6 +284,14 @@ final class AppState: ObservableObject {
         }
         watchdog = task
         return task
+    }
+
+    /// Records the failure and keeps the audio behind it, so the board can offer a
+    /// retry rather than the attempt vanishing.
+    private func keepFailure(_ reason: String, samples: [Float]) {
+        let transcript = history.recordFailure(reason, style: style)
+        if keepAudio { AudioCache.store(samples, id: transcript.id) }
+        history.save()
     }
 
     private func ensureMicrophone() async -> Bool {
@@ -361,7 +380,9 @@ extension AppState {
                 history.update(transcript.id, text: text)
                 history.save()
                 Sounds.play(.inserted)
-                show(toast: "Transcribed again from the original recording")
+                show(toast: transcript.failed
+                    ? "Transcribed on the retry — the text is in the list now"
+                    : "Transcribed again from the original recording")
             } catch {
                 Sounds.play(.failed)
                 show(toast: "Audio transcription failed — \(error.localizedDescription)")

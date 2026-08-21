@@ -7,16 +7,22 @@ public struct Transcript: Codable, Identifiable, Sendable, Equatable {
     public let date: Date
     /// The style it was produced under, so the board can show how it was treated.
     public let style: String
+    /// Why it failed, or nil when it worked. Optional so entries written before
+    /// failures were recorded still decode.
+    public var failureReason: String?
 
-    public init(text: String, date: Date = Date(), style: String) {
-        self.init(id: UUID(), text: text, date: date, style: style)
+    public var failed: Bool { failureReason != nil }
+
+    public init(text: String, date: Date = Date(), style: String, failureReason: String? = nil) {
+        self.init(id: UUID(), text: text, date: date, style: style, failureReason: failureReason)
     }
 
-    public init(id: UUID, text: String, date: Date, style: String) {
+    public init(id: UUID, text: String, date: Date, style: String, failureReason: String? = nil) {
         self.id = id
         self.text = text
         self.date = date
         self.style = style
+        self.failureReason = failureReason
     }
 
     /// True while the original recording is still cached and can be run again.
@@ -44,14 +50,26 @@ public struct History: Codable, Sendable {
         return transcript
     }
 
-    /// Replaces the text after the audio has been run through again.
+    /// A dictation that produced nothing. The recording is kept, so it can be
+    /// retried — otherwise a failure loses both the text and the audio, and the
+    /// user has nothing left to try again with.
+    @discardableResult
+    public mutating func recordFailure(_ reason: String, style: DictationStyle) -> Transcript {
+        let transcript = Transcript(text: "", style: style.label, failureReason: reason)
+        entries.insert(transcript, at: 0)
+        return transcript
+    }
+
+    /// Replaces the text after the audio has been run through again. A successful
+    /// retry clears the failure, so the entry stops offering one.
     public mutating func update(_ id: UUID, text: String) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index] = Transcript(
             id: id,
             text: text,
             date: entries[index].date,
-            style: entries[index].style
+            style: entries[index].style,
+            failureReason: nil
         )
     }
 
