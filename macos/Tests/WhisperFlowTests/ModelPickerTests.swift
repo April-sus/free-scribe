@@ -362,3 +362,67 @@ final class RecordingGroupingTests: XCTestCase {
         XCTAssertTrue(Grouping.month.group([]).isEmpty)
     }
 }
+
+final class HistorySearchTests: XCTestCase {
+    private func history(_ entries: [(String, Date)]) -> History {
+        var history = History()
+        // Stored newest first, which is what the pane relies on.
+        for (text, date) in entries {
+            history.entries.append(Transcript(text: text, date: date, style: "Verbatim"))
+        }
+        return history
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+    }
+
+    func testSearchIgnoresCase() {
+        let items = history([("Meeting about the Budget", date(2026, 8, 21))])
+        XCTAssertEqual(items.matching(search: "budget", period: .all).count, 1)
+        XCTAssertEqual(items.matching(search: "BUDGET", period: .all).count, 1)
+        XCTAssertEqual(items.matching(search: "invoice", period: .all).count, 0)
+    }
+
+    func testSearchMatchesPartOfAWord() {
+        let items = history([("transcription", date(2026, 8, 21))])
+        XCTAssertEqual(items.matching(search: "script", period: .all).count, 1)
+    }
+
+    func testBlankSearchKeepsEverything() {
+        let items = history([("one", date(2026, 8, 21)), ("two", date(2026, 8, 20))])
+        XCTAssertEqual(items.matching(search: "   ", period: .all).count, 2)
+    }
+
+    func testPeriodsNarrowByCalendar() {
+        let now = date(2026, 8, 21)
+        let items = history([
+            ("today", now),
+            ("earlier this month", date(2026, 8, 3)),
+            ("earlier this year", date(2026, 2, 3)),
+            ("last year", date(2025, 2, 3)),
+        ])
+
+        XCTAssertEqual(items.matching(search: "", period: .today, now: now).count, 1)
+        XCTAssertEqual(items.matching(search: "", period: .month, now: now).count, 2)
+        XCTAssertEqual(items.matching(search: "", period: .year, now: now).count, 3)
+        XCTAssertEqual(items.matching(search: "", period: .all, now: now).count, 4)
+    }
+
+    func testSearchAndPeriodApplyTogether() {
+        let now = date(2026, 8, 21)
+        let items = history([
+            ("budget meeting", now),
+            ("budget meeting", date(2025, 8, 21)),
+        ])
+        XCTAssertEqual(items.matching(search: "budget", period: .year, now: now).count, 1)
+    }
+
+    func testFailuresAreFoundByTheirReason() {
+        // A failed entry has no text, so searching would otherwise hide it entirely.
+        var items = History()
+        items.recordFailure("Nothing could be made out", style: .tidy)
+        XCTAssertEqual(items.matching(search: "nothing", period: .all).count, 1)
+        XCTAssertEqual(items.matching(search: "unrelated", period: .all).count, 0)
+    }
+}

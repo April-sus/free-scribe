@@ -160,6 +160,14 @@ private struct HistoryPane: View {
     @ObservedObject var state: AppState
     @State private var confirming: Destruction?
     @State private var managingStorage = false
+    @State private var search = ""
+    @State private var period: Period = .all
+    /// Rendering thousands of rows at once is slow and nobody scrolls that far.
+    private static let shown = 100
+
+    private var results: [Transcript] {
+        state.history.matching(search: search, period: period)
+    }
 
     var body: some View {
         if state.history.entries.isEmpty {
@@ -171,11 +179,65 @@ private struct HistoryPane: View {
                     .padding(.vertical, 12)
             }
         } else {
-            Card(title: "Transcripts", footnote: "Copy any of them back to the clipboard. Recordings are kept for the most recent dictations, so those can be run through the recogniser again — useful when a word came out wrong.") {
-                ForEach(Array(state.history.entries.enumerated()), id: \.element.id) { index, transcript in
-                    TranscriptRow(state: state, transcript: transcript)
-                    if index < state.history.entries.count - 1 { RowDivider() }
+            Card(title: "Find", footnote: period.detail) {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search your transcripts", text: $search)
+                            .textFieldStyle(.plain)
+                        if !search.isEmpty {
+                            Button {
+                                search = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Picker("Period", selection: $period) {
+                        ForEach(Period.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
+                .padding(.horizontal, Theme.cardPadding)
+                .padding(.vertical, 12)
+            }
+
+            if results.isEmpty {
+                Card(title: "No matches") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(emptyMessage)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Clear the filters") {
+                            search = ""
+                            period = .all
+                        }
+                        .controlSize(.small)
+                    }
+                    .padding(.horizontal, Theme.cardPadding)
+                    .padding(.vertical, 12)
+                }
+            } else {
+            Card(title: resultsTitle, footnote: "Copy any of them back to the clipboard. Recordings are kept for the most recent dictations, so those can be run through the recogniser again — useful when a word came out wrong.") {
+                let visible = Array(results.prefix(Self.shown))
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, transcript in
+                    TranscriptRow(state: state, transcript: transcript)
+                    if index < visible.count - 1 { RowDivider() }
+                }
+                if results.count > visible.count {
+                    RowDivider()
+                    Text("Showing the newest \(visible.count) of \(results.count). Search or narrow the period to reach the rest.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Theme.cardPadding)
+                        .padding(.vertical, 10)
+                }
+            }
             }
         }
 
@@ -228,6 +290,21 @@ private struct HistoryPane: View {
                 secondaryButton: .cancel(Text("Keep them"))
             )
         }
+    }
+
+    private var resultsTitle: String {
+        let total = state.history.entries.count
+        if results.count == total { return "Transcripts" }
+        return "\(results.count) of \(total) transcripts"
+    }
+
+    private var emptyMessage: String {
+        if search.isEmpty {
+            return "Nothing was dictated in that period. Try a wider one."
+        }
+        return period == .all
+            ? "Nothing matches “\(search)”."
+            : "Nothing matches “\(search)” in that period. It may be further back."
     }
 
     private var byteLabel: String {
