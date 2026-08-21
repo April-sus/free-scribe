@@ -322,6 +322,12 @@ private struct TranscriptRow: View {
     @ObservedObject var state: AppState
     let transcript: Transcript
     @State private var hovering = false
+    @State private var expanded = false
+
+    /// Long enough that it would fill the row and push everything else down.
+    /// Counted rather than measured: detecting real truncation in SwiftUI needs a
+    /// layout pass, and this only decides whether to offer a button.
+    private var isLong: Bool { transcript.text.count > 280 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -338,12 +344,23 @@ private struct TranscriptRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
+                // No fixedSize here. Paired with a line limit it tells the text to
+                // take its full ideal height while the layout has only allotted six
+                // lines, and the overflow draws straight over the row beneath.
                 Text(transcript.text)
-                    .lineLimit(6)
+                    .lineLimit(expanded ? nil : 6)
                     .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+
+                if isLong {
+                    Button(expanded ? "Show less" : "Show more") {
+                        withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.accent)
+                }
             }
 
             HStack(spacing: 8) {
