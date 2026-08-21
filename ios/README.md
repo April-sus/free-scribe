@@ -26,24 +26,22 @@ documented. Whether WhisperKit can load inside one decides the architecture:
 
 ## What the probe found
 
-Measured in the iPhone 17 Pro simulator, iOS 26.5:
+| | simulator | iPhone 16 Pro |
+|---|---|---|
+| app at launch | 17.4 MB | **8.6 MB** |
+| after loading `tiny.en` | 35.1 MB | **18.9 MB** |
 
-| | footprint |
-|---|---|
-| app at launch | 17.4 MB |
-| after loading `tiny.en` | 35.1 MB |
+The simulator overstated the cost by nearly double. On the device the smallest model
+adds about 10MB, against an extension ceiling historically around 48-60MB — so
+**tiny.en fits comfortably**, and the keyboard can transcribe on its own rather than
+handing audio to the containing app.
 
-So the smallest model costs about 18MB. Keyboard extensions have historically been
-held to roughly 48-60MB, which means **tiny.en plausibly fits inside one** — the
-keyboard could transcribe directly rather than handing audio to the containing app.
+The device also proved the hardware tiering, which the simulator could not: with 7GB
+free it chose `base.en`, where the simulator — seeing the host Mac's 492GB — had
+chosen the largest model.
 
-Two things that figure does not settle:
-
-- **The simulator does not enforce an extension's memory limit**, and it reports the
-  host Mac's hardware rather than a phone's: this run claimed 48GB of memory and
-  492GB free, so it chose the largest model. Both the ceiling and the hardware
-  tiering need a real device.
-- Only `tiny.en` was measured. `base.en` is roughly twice the weights and may not fit.
+Still open: only `tiny.en` has been measured, and the ceiling itself is enforced only
+on device, so the figure to watch is the one the keyboard reports rather than the app.
 
 ## Next
 

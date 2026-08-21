@@ -24,6 +24,10 @@ targets:
     dependencies:
       - package: WhisperFlowCore
       - target: FreeScribeKeyboard
+    entitlements:
+      path: App/FreeScribe.entitlements
+      properties:
+        com.apple.security.application-groups: [group.local.freescribe.shared]
     info:
       path: App/Info.plist
       properties:
@@ -40,6 +44,10 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: local.freescribe.FreeScribe.Keyboard
     dependencies:
       - package: WhisperFlowCore
+    entitlements:
+      path: Keyboard/FreeScribeKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups: [group.local.freescribe.shared]
     info:
       path: Keyboard/Info.plist
       properties:

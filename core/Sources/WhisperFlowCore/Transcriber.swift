@@ -16,12 +16,32 @@ public actor Transcriber {
 
     public init() {}
 
+    /// Identifies the container the app and its keyboard both see.
+    public static let appGroup = "group.local.freescribe.shared"
+
     /// Where models live. Deliberately outside the app bundle so a rebuild does not
-    /// throw away a 1 GB download.
+    /// throw away a large download.
+    ///
+    /// On iOS this has to be the shared group container: a keyboard extension is
+    /// sandboxed separately from its own app, so anything written to the app's
+    /// Application Support is invisible to the keyboard, which then tries to
+    /// download its own copy — and a keyboard has no reliable network to do it with.
     public static var modelsBase: URL {
+        #if os(iOS)
+        if let shared = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
+            return shared.appending(path: "WhisperFlow")
+        }
+        #endif
+
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: "Library/Application Support")
         return support.appending(path: "WhisperFlow")
+    }
+
+    /// Whether a model is present without trying to fetch one. A keyboard should
+    /// say what is missing rather than attempt a download it cannot complete.
+    public static func canRunOffline(_ model: String) -> Bool {
+        isDownloaded(model)
     }
 
     public static func localFolder(for model: String) -> URL {

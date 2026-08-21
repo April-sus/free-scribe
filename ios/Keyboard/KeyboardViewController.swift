@@ -45,13 +45,23 @@ final class KeyboardViewController: UIInputViewController {
         report("at launch")
     }
 
+    private static let model = "openai_whisper-tiny.en"
+
     @objc private func loadModel() {
+        // A keyboard has no reliable network, so it never downloads. If the model
+        // is not in the shared container the app has not fetched it yet, and
+        // saying so is more use than a DNS error.
+        guard Transcriber.canRunOffline(Self.model) else {
+            readout.text = "The model is not in the shared container yet.\nOpen Free Scribe and load it there first."
+            NSLog("[free-scribe] model missing from %@", Transcriber.modelsBase.path)
+            return
+        }
+
         report("loading…")
         Task {
             let transcriber = Transcriber()
             do {
-                // The smallest model there is. If this does not fit, nothing will.
-                try await transcriber.load(model: "openai_whisper-tiny.en") { _ in }
+                try await transcriber.load(model: Self.model) { _ in }
                 self.transcriber = transcriber
                 report("model loaded")
             } catch {
