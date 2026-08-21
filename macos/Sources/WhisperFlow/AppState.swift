@@ -61,6 +61,14 @@ final class AppState: ObservableObject {
     @AppStorage("keepAudio") var keepAudio = true {
         didSet { if !keepAudio { AudioCache.clear() } }
     }
+    /// Keep every recording rather than the most recent few. Off by default: this
+    /// grows without bound, which is why the storage list exists alongside it.
+    @AppStorage("unlimitedAudio") var unlimitedAudio = false
+
+    /// How many recordings to retain, or nil for all of them.
+    var audioLimit: Int? {
+        unlimitedAudio ? nil : AudioCache.defaultLimit
+    }
 
     var style: DictationStyle {
         get { DictationStyle(rawValue: styleRaw) ?? .tidy }
@@ -218,7 +226,7 @@ final class AppState: ObservableObject {
                 if let transcript = history.record(text, style: style) {
                     // Stored under the transcript's own id, so the board knows which
                     // recording belongs to which line.
-                    if keepAudio { AudioCache.store(samples, id: transcript.id) }
+                    if keepAudio { AudioCache.store(samples, id: transcript.id, keepingLast: audioLimit) }
                     history.save()
                 }
                 Sounds.play(.inserted)
@@ -287,7 +295,7 @@ final class AppState: ObservableObject {
     /// retry rather than the attempt vanishing.
     private func keepFailure(_ reason: String, samples: [Float]) {
         let transcript = history.recordFailure(reason, style: style)
-        if keepAudio { AudioCache.store(samples, id: transcript.id) }
+        if keepAudio { AudioCache.store(samples, id: transcript.id, keepingLast: audioLimit) }
         history.save()
     }
 
@@ -342,6 +350,16 @@ extension AppState {
         history.removeAll()
         History.erase()
         show(toast: "History and recordings cleared")
+    }
+
+    /// Deletes a chosen set of recordings, leaving their transcripts in place.
+    func deleteRecordings(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        AudioCache.remove(ids)
+        objectWillChange.send()
+        show(toast: ids.count == 1
+            ? "Recording deleted — its transcript is still here"
+            : "\(ids.count) recordings deleted — their transcripts are still here")
     }
 
     func clearAudioCache() {

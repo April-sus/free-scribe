@@ -159,6 +159,7 @@ private enum Destruction: Identifiable {
 private struct HistoryPane: View {
     @ObservedObject var state: AppState
     @State private var confirming: Destruction?
+    @State private var managingStorage = false
 
     var body: some View {
         if state.history.entries.isEmpty {
@@ -170,7 +171,7 @@ private struct HistoryPane: View {
                     .padding(.vertical, 12)
             }
         } else {
-            Card(title: "Transcripts", footnote: "Copy any of them back to the clipboard. The last \(AudioCache.limit) recordings are kept, so those can be run through the recogniser again — useful when a word came out wrong.") {
+            Card(title: "Transcripts", footnote: "Copy any of them back to the clipboard. Recordings are kept for the most recent dictations, so those can be run through the recogniser again — useful when a word came out wrong.") {
                 ForEach(Array(state.history.entries.enumerated()), id: \.element.id) { index, transcript in
                     TranscriptRow(state: state, transcript: transcript)
                     if index < state.history.entries.count - 1 { RowDivider() }
@@ -180,15 +181,28 @@ private struct HistoryPane: View {
 
         Card(
             title: "Stored on this Mac",
-            footnote: "Transcripts are kept until you delete them. Recordings of the last \(AudioCache.limit) dictations are kept so a transcript can be produced again from the original audio — they are deleted automatically as newer ones arrive, and you can remove them all at any time."
+            footnote: "Transcripts are kept until you delete them. Recordings let a transcript be produced again from the original audio, and can be removed at any time."
         ) {
             Row(title: "Keep recordings", detail: "Needed to transcribe again. Turning this off deletes the ones already stored.") {
                 Toggle("", isOn: $state.keepAudio)
                     .toggleStyle(.switch)
             }
             RowDivider()
+            Row(
+                title: "Keep every recording",
+                detail: state.unlimitedAudio
+                    ? "Nothing is deleted automatically. Use Manage to clear out what you no longer need."
+                    : "Only the last \(AudioCache.defaultLimit) are kept; older ones are deleted as newer ones arrive."
+            ) {
+                Toggle("", isOn: $state.unlimitedAudio)
+                    .toggleStyle(.switch)
+                    .disabled(!state.keepAudio)
+            }
+            RowDivider()
             Row(title: "Recordings held", detail: byteLabel) {
-                Button("Delete audio") { confirming = .audio }
+                Button("Manage…") { managingStorage = true }
+                    .disabled(AudioCache.bytesUsed() == 0)
+                Button("Delete all") { confirming = .audio }
                     .disabled(AudioCache.bytesUsed() == 0)
             }
             if !state.history.entries.isEmpty {
@@ -197,6 +211,9 @@ private struct HistoryPane: View {
                     Button("Clear") { confirming = .everything }
                 }
             }
+        }
+        .sheet(isPresented: $managingStorage) {
+            StorageSheet(state: state)
         }
         .alert(item: $confirming) { destruction in
             Alert(
@@ -217,7 +234,10 @@ private struct HistoryPane: View {
         let bytes = AudioCache.bytesUsed()
         guard bytes > 0 else { return "Nothing stored right now." }
         let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return "\(AudioCache.stored().count) of \(AudioCache.limit), using \(formatted)."
+        let count = AudioCache.stored().count
+        return state.unlimitedAudio
+            ? "\(count) kept, using \(formatted)."
+            : "\(count) of \(AudioCache.defaultLimit), using \(formatted)."
     }
 }
 
@@ -277,7 +297,7 @@ private struct TranscriptRow: View {
                     Text("recording cleared")
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
-                        .help("Only the last \(AudioCache.limit) recordings are kept, so this one cannot be redone.")
+                        .help("The recording for this one is no longer stored, so it cannot be redone.")
                 }
 
                 Button {

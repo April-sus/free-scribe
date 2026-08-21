@@ -315,3 +315,50 @@ final class FailedTranscriptTests: XCTestCase {
         XCTAssertFalse(history.entries[0].failed)
     }
 }
+
+final class RecordingGroupingTests: XCTestCase {
+    /// Built in the local calendar rather than from UTC strings: grouping is by
+    /// local day, so a UTC literal lands on a different date depending on where the
+    /// machine is, and the test would pass or fail by timezone.
+    private func recording(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, bytes: Int64 = 1000) -> Recording {
+        let components = DateComponents(year: year, month: month, day: day, hour: hour)
+        return Recording(id: UUID(), date: Calendar.current.date(from: components)!, bytes: bytes)
+    }
+
+    func testDaysGroupSeparatelyAndNewestComesFirst() {
+        let items = [
+            recording(2026, 8, 21, 9),
+            recording(2026, 8, 21, 17),
+            recording(2026, 8, 19, 9),
+        ]
+        let groups = Grouping.day.group(items)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].recordings.count, 2, "both of the 21st belong together")
+        XCTAssertGreaterThan(groups[0].date, groups[1].date, "newest group first")
+    }
+
+    func testMonthAndYearCollapseTheSameItemsFurther() {
+        let items = [
+            recording(2026, 8, 21, 9),
+            recording(2026, 8, 2, 9),
+            recording(2026, 3, 2, 9),
+            recording(2025, 3, 2, 9),
+        ]
+        XCTAssertEqual(Grouping.day.group(items).count, 4)
+        XCTAssertEqual(Grouping.month.group(items).count, 3)
+        XCTAssertEqual(Grouping.year.group(items).count, 2)
+    }
+
+    func testAGroupReportsWhatDeletingItWouldFree() {
+        let items = [
+            recording(2026, 8, 21, 9, bytes: 1500),
+            recording(2026, 8, 21, 10, bytes: 2500),
+        ]
+        XCTAssertEqual(Grouping.day.group(items).first?.bytes, 4000)
+    }
+
+    func testGroupingNothingProducesNothing() {
+        XCTAssertTrue(Grouping.month.group([]).isEmpty)
+    }
+}
