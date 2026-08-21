@@ -119,14 +119,6 @@ private struct HistoryPane: View {
     @ObservedObject var state: AppState
 
     var body: some View {
-        if state.style == .scribe {
-            Banner(
-                icon: "lock.fill",
-                message: "Scribe mode is not recorded. During an exam a list of earlier answers is a record nobody sanctioned.",
-                tint: Theme.warning
-            )
-        }
-
         if state.history.entries.isEmpty {
             Card(title: "Nothing yet", footnote: "Transcripts appear here as you dictate. Click one to copy it again.") {
                 Text("Dictate something and it shows up here.")
@@ -136,7 +128,7 @@ private struct HistoryPane: View {
                     .padding(.vertical, 12)
             }
         } else {
-            Card(title: "Recent transcripts", footnote: "Click any of them to copy it to your clipboard.") {
+            Card(title: "Transcripts", footnote: "Click any of them to copy it to your clipboard. Where the recording is still stored, it can be transcribed again.") {
                 ForEach(Array(state.history.entries.enumerated()), id: \.element.id) { index, transcript in
                     TranscriptRow(state: state, transcript: transcript)
                     if index < state.history.entries.count - 1 { RowDivider() }
@@ -145,20 +137,32 @@ private struct HistoryPane: View {
         }
 
         Card(
-            title: "Keeping them",
-            footnote: "Off by default. Nothing is written to disk unless you turn this on, and turning it off deletes the file rather than emptying it."
+            title: "Stored on this Mac",
+            footnote: "Transcripts are kept until you delete them. Recordings of the last \(AudioCache.limit) dictations are kept so a transcript can be produced again from the original audio — they are deleted automatically as newer ones arrive, and you can remove them all at any time."
         ) {
-            Row(title: "Keep after quitting", detail: "Otherwise the list is cleared when Free Scribe closes.") {
-                Toggle("", isOn: $state.keepHistory)
+            Row(title: "Keep recordings", detail: "Needed to transcribe again. Turning this off deletes the ones already stored.") {
+                Toggle("", isOn: $state.keepAudio)
                     .toggleStyle(.switch)
+            }
+            RowDivider()
+            Row(title: "Recordings held", detail: byteLabel) {
+                Button("Delete audio") { state.clearAudioCache() }
+                    .disabled(AudioCache.bytesUsed() == 0)
             }
             if !state.history.entries.isEmpty {
                 RowDivider()
-                Row(title: "Clear the list", detail: "Removes every transcript, and the file if there is one.") {
+                Row(title: "Clear everything", detail: "Removes every transcript and every recording.") {
                     Button("Clear") { state.clearHistory() }
                 }
             }
         }
+    }
+
+    private var byteLabel: String {
+        let bytes = AudioCache.bytesUsed()
+        guard bytes > 0 else { return "Nothing stored right now." }
+        let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return "\(AudioCache.stored().count) of \(AudioCache.limit), using \(formatted)."
     }
 }
 
@@ -167,6 +171,13 @@ private struct TranscriptRow: View {
     let transcript: Transcript
     @State private var hovering = false
 
+    private var subtitle: String {
+        let when = transcript.date.formatted(date: .abbreviated, time: .shortened)
+        return transcript.canRetranscribe
+            ? "\(when) · \(transcript.style) · recording kept"
+            : "\(when) · \(transcript.style)"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -174,11 +185,24 @@ private struct TranscriptRow: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(transcript.date.formatted(date: .omitted, time: .shortened)) · \(transcript.style)")
+                Text(subtitle)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+
+            if transcript.canRetranscribe {
+                Button {
+                    state.retranscribe(transcript)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .opacity(hovering ? 1 : 0)
+                .help("Transcribe again from the original recording")
+            }
+
             Button {
                 state.delete(transcript)
             } label: {
@@ -187,7 +211,7 @@ private struct TranscriptRow: View {
             }
             .buttonStyle(.plain)
             .opacity(hovering ? 1 : 0)
-            .help("Delete this transcript")
+            .help("Delete this transcript and its recording")
         }
         .padding(.horizontal, Theme.cardPadding)
         .padding(.vertical, 11)
@@ -641,6 +665,13 @@ private struct GeneralPane: View {
             }
         }
 
+        Card(title: "Sound") {
+            Row(title: "Play sounds", detail: "Short cues when listening starts, text is inserted, and something fails — useful when the window is hidden.") {
+                Toggle("", isOn: $state.soundsEnabled)
+                    .toggleStyle(.switch)
+            }
+        }
+
         Card(title: "Permissions") {
             Row(title: "Microphone", detail: "Needed to hear you at all.") {
                 StatusPip(granted: Recorder.microphoneAuthorized)
@@ -655,8 +686,10 @@ private struct GeneralPane: View {
             }
         }
 
-        Card(title: "About", footnote: "Whisper runs on this Mac through CoreML. Nothing you say is uploaded, and there is nothing to pay for.") {
+        Card(title: "About", footnote: "Free Scribe recognises speech on this Mac using Apple's Neural Engine. Nothing you say is uploaded, and there is nothing to pay for. Open source under the MIT License; see the notices in this app's Resources folder.") {
             Row(title: "Version", detail: "Free Scribe 1.0") { EmptyView() }
+            RowDivider()
+            Row(title: "Speech model", detail: ModelPicker.label(for: state.activeModel)) { EmptyView() }
         }
     }
 }

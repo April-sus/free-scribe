@@ -29,11 +29,11 @@ public struct MachineInfo: Sendable {
 public enum ModelPicker {
     /// Models we offer in Settings, weakest to strongest, with rough download sizes.
     public static let catalog: [(id: String, label: String, size: String)] = [
-        ("openai_whisper-tiny.en", "Tiny (English)", "~75 MB"),
-        ("openai_whisper-base.en", "Base (English)", "~145 MB"),
-        ("openai_whisper-small.en", "Small (English)", "~470 MB"),
-        ("openai_whisper-large-v3-v20240930_626MB", "Large v3 (compressed)", "~626 MB"),
-        ("openai_whisper-large-v3-v20240930_turbo", "Large v3 Turbo", "~950 MB"),
+        ("openai_whisper-tiny.en", "Compact · English", "~75 MB"),
+        ("openai_whisper-base.en", "Light · English", "~145 MB"),
+        ("openai_whisper-small.en", "Standard · English", "~470 MB"),
+        ("openai_whisper-large-v3-v20240930_626MB", "Accurate · compact", "~626 MB"),
+        ("openai_whisper-large-v3-v20240930_turbo", "Accurate · all languages", "~950 MB"),
     ]
 
     public static func label(for id: String) -> String {

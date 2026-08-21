@@ -9,46 +9,62 @@ public struct Transcript: Codable, Identifiable, Sendable, Equatable {
     public let style: String
 
     public init(text: String, date: Date = Date(), style: String) {
-        self.id = UUID()
+        self.init(id: UUID(), text: text, date: date, style: style)
+    }
+
+    public init(id: UUID, text: String, date: Date, style: String) {
+        self.id = id
         self.text = text
         self.date = date
         self.style = style
     }
+
+    /// True while the original recording is still cached and can be run again.
+    public var canRetranscribe: Bool { AudioCache.exists(id) }
 }
 
-/// Recent transcripts.
+/// Every transcript, kept for good.
 ///
-/// Held in memory for the session so the board is useful straight away, and written
-/// to disk only if the user asks for it. On a shared or school machine, a log of what
-/// somebody said is exactly the sort of thing that should not linger by default.
+/// Written to disk after each dictation and never trimmed: the whole point is that
+/// something dictated last month is still there. Removing entries is the user's
+/// call, never the app's.
 public struct History: Codable, Sendable {
-    /// Enough to find the thing you dictated a moment ago, not a diary.
-    public static let limit = 20
-
     public var entries: [Transcript] = []
 
     public init() {}
 
-    /// Scribe mode is never recorded. During an exam a list of earlier answers is a
-    /// record nobody sanctioned, and could function as assistance.
-    public static func records(style: DictationStyle) -> Bool {
-        style != .scribe
+    /// - Returns: the new entry, whose id also names its cached audio.
+    @discardableResult
+    public mutating func record(_ text: String, style: DictationStyle) -> Transcript? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let transcript = Transcript(text: trimmed, style: style.label)
+        entries.insert(transcript, at: 0)
+        return transcript
     }
 
-    public mutating func record(_ text: String, style: DictationStyle) {
-        guard Self.records(style: style) else { return }
-
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        entries.insert(Transcript(text: trimmed, style: style.label), at: 0)
-        if entries.count > Self.limit {
-            entries.removeLast(entries.count - Self.limit)
-        }
+    /// Replaces the text after the audio has been run through again.
+    public mutating func update(_ id: UUID, text: String) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index] = Transcript(
+            id: id,
+            text: text,
+            date: entries[index].date,
+            style: entries[index].style
+        )
     }
 
     public mutating func remove(_ id: UUID) {
         entries.removeAll { $0.id == id }
+        // The recording goes with it: deleting a transcript should not leave the
+        // audio of it sitting on disk.
+        AudioCache.remove(id)
+    }
+
+    public mutating func removeAll() {
+        entries.removeAll()
+        AudioCache.clear()
     }
 
     // MARK: Storage
@@ -71,9 +87,10 @@ public struct History: Codable, Sendable {
         try? data.write(to: Self.fileURL, options: .atomic)
     }
 
-    /// Removes the file entirely rather than writing an empty one, so turning the
-    /// setting off leaves nothing behind to recover.
+    /// Removes the file entirely rather than writing an empty one, so a cleared
+    /// history leaves nothing behind to recover.
     public static func erase() {
         try? FileManager.default.removeItem(at: fileURL)
+        AudioCache.clear()
     }
 }

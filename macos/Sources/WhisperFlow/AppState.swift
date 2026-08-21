@@ -52,12 +52,14 @@ final class AppState: ObservableObject {
     @AppStorage("style") private var styleRaw = DictationStyle.tidy.rawValue
     /// Scribe mode only: let the student say "capital y" to get an uppercase letter.
     @AppStorage("spokenCapitals") var spokenCapitals = true
-    /// Off by default: on a shared or school machine, a record of what somebody
-    /// said should not outlive the session unless they ask for it.
-    @AppStorage("keepHistory") var keepHistory = false {
-        didSet {
-            if keepHistory { history.save() } else { History.erase() }
-        }
+    /// Cues while the window is hidden, which is most of the time.
+    @AppStorage("sounds") var soundsEnabled = true {
+        didSet { Sounds.enabled = soundsEnabled }
+    }
+    /// Keeping the audio is what makes a transcript redoable. Deleting it is always
+    /// available regardless of this, since it is a recording of a person.
+    @AppStorage("keepAudio") var keepAudio = true {
+        didSet { if !keepAudio { AudioCache.clear() } }
     }
 
     var style: DictationStyle {
@@ -80,7 +82,8 @@ final class AppState: ObservableObject {
             levels.append(level)
             if levels.count > 48 { levels.removeFirst(levels.count - 48) }
         }
-        if keepHistory { history = History.load() }
+        history = History.load()
+        Sounds.enabled = soundsEnabled
         hotkey = Hotkey(state: self)
 
         if needsSetup || !seenWelcome {
@@ -160,6 +163,7 @@ final class AppState: ObservableObject {
                 recorder.inputDeviceUID = inputDevice
                 try recorder.start()
                 phase = .recording
+                Sounds.play(.started)
                 pill.show(self)
             } catch {
                 phase = .error(error.localizedDescription)
@@ -199,13 +203,20 @@ final class AppState: ObservableObject {
 
                 guard !text.isEmpty else {
                     phase = .error("Didn't catch that — nothing was heard")
+                    Sounds.play(.failed)
                     pill.flash(self, seconds: 2)
                     return
                 }
                 stats.record(spoken: spoken, seconds: seconds)
                 stats.save()
-                history.record(text, style: style)
-                if keepHistory { history.save() }
+
+                if let transcript = history.record(text, style: style) {
+                    // Stored under the transcript's own id, so the board knows which
+                    // recording belongs to which line.
+                    if keepAudio { AudioCache.store(samples, id: transcript.id) }
+                    history.save()
+                }
+                Sounds.play(.inserted)
                 lastTranscript = text
                 if !Paste.insert(text) {
                     phase = .error("Copied to clipboard — grant Accessibility to paste automatically")
@@ -222,6 +233,7 @@ final class AppState: ObservableObject {
             } catch {
                 guard token == generation else { return }
                 await transcriber.clearState()
+                Sounds.play(.failed)
                 phase = .error("Something went wrong transcribing that — press the shortcut to try again")
                 pill.flash(self)
             }
@@ -300,19 +312,61 @@ extension AppState {
     func copyToClipboard(_ transcript: Transcript) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(transcript.text, forType: .string)
+        Sounds.play(.copied)
         show(toast: "Copied to your clipboard — paste it wherever you like")
     }
 
     func delete(_ transcript: Transcript) {
         history.remove(transcript.id)
-        if keepHistory { history.save() }
-        show(toast: "Deleted")
+        history.save()
+        show(toast: "Deleted, along with its recording")
     }
 
     func clearHistory() {
-        history = History()
+        history.removeAll()
         History.erase()
-        show(toast: "History cleared")
+        show(toast: "History and recordings cleared")
+    }
+
+    func clearAudioCache() {
+        AudioCache.clear()
+        objectWillChange.send()
+        show(toast: "Recordings deleted — transcripts kept")
+    }
+
+    /// Runs the original recording through again. The text it produced first time is
+    /// replaced only if the second attempt actually yields something.
+    func retranscribe(_ transcript: Transcript) {
+        guard transcript.canRetranscribe else {
+            Sounds.play(.failed)
+            show(toast: "Audio transcription failed — that recording is no longer stored")
+            return
+        }
+
+        Task {
+            do {
+                if await transcriber.loadedModel == nil { await prepareModel() }
+                let spoken = try await transcriber.transcribe(
+                    path: AudioCache.url(for: transcript.id).path,
+                    language: language.isEmpty ? nil : language
+                )
+                let text = await Cleanup.apply(spoken, style: style, spokenCapitals: spokenCapitals)
+
+                guard !text.isEmpty else {
+                    Sounds.play(.failed)
+                    show(toast: "Audio transcription failed — nothing could be made out")
+                    return
+                }
+
+                history.update(transcript.id, text: text)
+                history.save()
+                Sounds.play(.inserted)
+                show(toast: "Transcribed again from the original recording")
+            } catch {
+                Sounds.play(.failed)
+                show(toast: "Audio transcription failed — \(error.localizedDescription)")
+            }
+        }
     }
 
     private func show(toast message: String) {

@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import WhisperFlowCore
 
@@ -201,15 +202,16 @@ final class TranscriberGuardTests: XCTestCase {
 }
 
 final class HistoryTests: XCTestCase {
-    func testScribeModeIsNeverRecorded() {
-        // An exam must not leave a list of earlier answers behind.
+    func testEveryStyleIsRecorded() {
+        // Including scribe: the history is kept whatever mode produced it. If exam
+        // use ever needs an exception, this is the test that has to change first.
         var history = History()
         history.record("hello there", style: .scribe)
-        XCTAssertTrue(history.entries.isEmpty)
-        XCTAssertFalse(History.records(style: .scribe))
+        history.record("and this", style: .tidy)
+        XCTAssertEqual(history.entries.count, 2)
     }
 
-    func testOtherStylesAreRecordedNewestFirst() {
+    func testNewestFirst() {
         var history = History()
         history.record("first", style: .tidy)
         history.record("second", style: .verbatim)
@@ -218,17 +220,18 @@ final class HistoryTests: XCTestCase {
 
     func testEmptyTranscriptsAreIgnored() {
         var history = History()
-        history.record("   \n ", style: .tidy)
+        XCTAssertNil(history.record("   \n ", style: .tidy))
         XCTAssertTrue(history.entries.isEmpty)
     }
 
-    func testOldestFallOffTheEnd() {
+    func testNothingIsTrimmedAway() {
+        // Permanent by design: something dictated last month is still there.
         var history = History()
-        for index in 0..<(History.limit + 5) {
+        for index in 0..<250 {
             history.record("entry \(index)", style: .tidy)
         }
-        XCTAssertEqual(history.entries.count, History.limit)
-        XCTAssertEqual(history.entries.first?.text, "entry \(History.limit + 4)")
+        XCTAssertEqual(history.entries.count, 250)
+        XCTAssertEqual(history.entries.last?.text, "entry 0")
     }
 
     func testRemoveTakesOnlyThatEntry() {
@@ -237,5 +240,45 @@ final class HistoryTests: XCTestCase {
         history.record("drop", style: .tidy)
         history.remove(history.entries[0].id)
         XCTAssertEqual(history.entries.map(\.text), ["keep"])
+    }
+
+    func testRetranscribingReplacesTextButKeepsWhenAndHow() {
+        var history = History()
+        let original = history.record("wrong wrods", style: .tidy)!
+        history.update(original.id, text: "wrong words")
+
+        let updated = history.entries[0]
+        XCTAssertEqual(updated.text, "wrong words")
+        XCTAssertEqual(updated.id, original.id, "the id names its recording, so it must survive")
+        XCTAssertEqual(updated.date, original.date)
+        XCTAssertEqual(updated.style, original.style)
+    }
+
+    func testUpdatingSomethingAlreadyDeletedDoesNothing() {
+        var history = History()
+        history.record("here", style: .tidy)
+        history.update(UUID(), text: "should not appear")
+        XCTAssertEqual(history.entries.map(\.text), ["here"])
+    }
+}
+
+final class AudioCacheTests: XCTestCase {
+    /// Writes to a temporary file rather than the real cache: a test must never
+    /// touch recordings belonging to the person using the app.
+    func testRecordingsSurviveTheRoundTrip() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "free-scribe-test-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // A recognisable ramp, so a channel or endianness mistake would show up.
+        let samples = (0..<16000).map { Float($0) / 16000.0 * 0.5 }
+        try AudioCache.write(samples, to: url)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.sampleRate, 16000)
+        XCTAssertEqual(file.fileFormat.channelCount, 1)
+        XCTAssertEqual(file.length, 16000, "every sample should be written, not a padded or truncated buffer")
     }
 }

@@ -40,11 +40,11 @@ impl MachineInfo {
 
 /// Models offered in settings, weakest to strongest, with rough download sizes.
 pub const CATALOG: &[(&str, &str, &str)] = &[
-    ("ggml-tiny.en", "Tiny (English)", "~75 MB"),
-    ("ggml-base.en", "Base (English)", "~142 MB"),
-    ("ggml-small.en", "Small (English)", "~466 MB"),
-    ("ggml-medium.en", "Medium (English)", "~1.5 GB"),
-    ("ggml-large-v3-turbo", "Large v3 Turbo", "~1.6 GB"),
+    ("ggml-tiny.en", "Compact · English", "~75 MB"),
+    ("ggml-base.en", "Light · English", "~142 MB"),
+    ("ggml-small.en", "Standard · English", "~466 MB"),
+    ("ggml-medium.en", "Accurate · English", "~1.5 GB"),
+    ("ggml-large-v3-turbo", "Accurate · all languages", "~1.6 GB"),
 ];
 
 pub fn label(id: &str) -> &str {
