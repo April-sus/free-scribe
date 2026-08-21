@@ -507,7 +507,11 @@ final class SilenceGateTests: XCTestCase {
     /// Measured from a real microphone rather than synthesised speech: quiet
     /// dictation peaks around 0.016, which the original 0.01 gate nearly rejected.
     func testQuietRealSpeechIsWellAboveTheGate() {
-        let quiet = (0..<32000).map { index in sin(Float(index) * 0.05) * 0.016 }
+        // The 0.016 measured from real recordings is an RMS, and a sine's RMS is
+        // its amplitude over root two — so the amplitude has to be scaled up to
+        // model a signal that actually reads 0.016.
+        let amplitude = Float(0.016 * 2.0.squareRoot())
+        let quiet = (0..<32000).map { index in sin(Float(index) * 0.05) * amplitude }
         XCTAssertGreaterThan(Transcriber.peak(of: quiet), Transcriber.silenceThreshold)
         XCTAssertGreaterThan(
             Transcriber.peak(of: quiet) / Transcriber.silenceThreshold, 3,
