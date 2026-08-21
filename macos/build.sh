@@ -18,6 +18,15 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$BIN_NAME"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+
+# The translation sidecar. Built here rather than downloaded, and signed with the
+# app below — an unsigned helper inside a signed bundle will not launch.
+if [ -d ../translator ]; then
+	( cd ../translator && cargo build --release >/dev/null 2>&1 ) \
+		&& cp ../translator/target/release/free-scribe-translate "$APP/Contents/MacOS/" \
+		&& echo "bundled the translation sidecar" \
+		|| echo "translation sidecar not built; translation falls back to Apple's languages"
+fi
 cp Resources/FreeScribe.icns "$APP/Contents/Resources/FreeScribe.icns"
 
 # MIT and Apache-2.0 require their notices to travel with the binary, so the

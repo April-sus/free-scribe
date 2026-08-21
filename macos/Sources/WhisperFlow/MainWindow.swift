@@ -561,26 +561,58 @@ private struct DictationPane: View {
             ) {
                 Row(
                     title: "Language",
-                    detail: "Downloaded the first time you use a pair, then it works offline."
+                    detail: LocalTranslator.isAvailable
+                        ? "\(state.translatableTargets.count) languages. Everything runs on this Mac."
+                        : "\(state.translatableTargets.count) built in. Add the language pack below for \(TranslationModel.languageCount)."
                 ) {
                     Picker("", selection: $state.translateTo) {
-                        // Only what this Mac can actually translate into. The
-                        // recogniser understands far more languages than the
-                        // translator does, and offering the difference just
-                        // produces failures at the moment of speaking.
-                        ForEach(Languages.all().filter { state.translator.supports($0.code) }) { language in
+                        // Only what can actually be translated. Offering the rest
+                        // just produces a failure at the moment of speaking.
+                        ForEach(Languages.all().filter { state.translatableTargets.contains($0.code) }) { language in
                             Text(language.label).tag(language.code)
                         }
                     }
                     .frame(maxWidth: 240)
                 }
-                if !state.translator.supports(state.translateTo) {
+
+                if !state.translatableTargets.contains(state.translateTo) {
                     RowDivider()
                     Row(
-                        title: "That language cannot be translated here",
-                        detail: "\(Languages.all().first { $0.code == state.translateTo }?.label ?? state.translateTo) is not one this Mac can translate into, so dictation would fail. Pick another."
+                        title: "That language is not available yet",
+                        detail: "\(Languages.all().first { $0.code == state.translateTo }?.label ?? state.translateTo) needs the language pack, or another language."
                     ) {
                         Button("Use English") { state.translateTo = "en" }
+                    }
+                }
+
+                RowDivider()
+
+                if TranslationModel.isInstalled {
+                    Row(
+                        title: "Language pack",
+                        detail: "Installed. Covers the \(TranslationModel.languageCount) languages Apple's own translator does not."
+                    ) {
+                        Button("Remove") {
+                            TranslationModel.remove()
+                            state.localTranslator.stop()
+                            state.objectWillChange.send()
+                        }
+                    }
+                } else if case .downloading(let fraction) = state.phase {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Downloading the language pack…").font(.callout)
+                        ProgressView(value: fraction).tint(Theme.accent)
+                    }
+                    .padding(.horizontal, Theme.cardPadding)
+                    .padding(.vertical, 12)
+                } else {
+                    Row(
+                        title: "More languages",
+                        detail: "\(TranslationModel.approximateSize) once, then \(TranslationModel.languageCount) languages work offline — including the ones Apple cannot translate at all."
+                    ) {
+                        Button("Add") { state.downloadTranslationModel() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Theme.accent)
                     }
                 }
             }

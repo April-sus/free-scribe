@@ -48,6 +48,9 @@ final class AppState: ObservableObject {
     /// Owned here so one session can serve many dictations; the pill hosts the
     /// worker that drains it.
     let translator = Translator()
+    /// Everything Apple's translator cannot do. Costs a download, but covers 84
+    /// languages against its 22.
+    let localTranslator = LocalTranslator()
 
     // MARK: Settings (empty string means "decide automatically")
 
@@ -336,8 +339,38 @@ final class AppState: ObservableObject {
         let source = language.isEmpty ? (Languages.systemDefault() ?? "en") : language
         guard source != translateTo else { return text }
 
-        translator.prepare(from: source, to: translateTo)
-        return await translator.translate(text)
+        // Apple's is better where it exists, needs no download and is already
+        // installed — so it gets first refusal, and the local model covers the
+        // languages it has never heard of.
+        if translator.supports(translateTo), translator.supports(source) {
+            if let result = await translator.translate(text) { return result }
+        }
+
+        return await localTranslator.translate(text, from: source, to: translateTo)
+    }
+
+    /// Every language that can be translated into by one engine or the other.
+    var translatableTargets: [String] {
+        let apple = Set(translator.supportedTargets)
+        let local = LocalTranslator.isAvailable ? Set(M2M.languages) : []
+        return Languages.codes.filter { apple.contains($0) || local.contains($0) }
+    }
+
+    func downloadTranslationModel() {
+        Task {
+            phase = .downloading(0)
+            do {
+                try await TranslationModel.download { fraction in
+                    Task { @MainActor in
+                        if case .downloading = self.phase { self.phase = .downloading(fraction) }
+                    }
+                }
+                phase = .idle
+                objectWillChange.send()
+            } catch {
+                phase = .error("The translation model could not be downloaded: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func ensureMicrophone() async -> Bool {

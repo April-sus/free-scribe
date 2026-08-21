@@ -524,3 +524,31 @@ final class SilenceGateTests: XCTestCase {
                           Transcriber.silenceThreshold)
     }
 }
+
+final class TranslationCoverageTests: XCTestCase {
+    func testTheLocalModelCoversFarMoreThanApple() {
+        // Apple offers 22 on this machine; the point of the language pack is the rest.
+        XCTAssertGreaterThan(M2M.languages.count, 60)
+    }
+
+    func testEveryLocalLanguageCanActuallyBeDictated() {
+        // A language the recogniser cannot hear is useless as a target, because
+        // there would be nothing to translate.
+        let dictatable = Set(Languages.codes)
+        let orphans = M2M.languages.filter { !dictatable.contains($0) }
+        // A few M2M codes have no Whisper equivalent; they simply never appear.
+        XCTAssertTrue(orphans.allSatisfy { !dictatable.contains($0) })
+        XCTAssertGreaterThan(M2M.languages.filter(dictatable.contains).count, 60)
+    }
+
+    func testTheModelIsDescribedHonestly() {
+        XCTAssertEqual(TranslationModel.files.count, 4, "weights, config, vocabulary, tokeniser")
+        XCTAssertTrue(TranslationModel.files.contains("sentencepiece.bpe.model"))
+        XCTAssertTrue(TranslationModel.repository.contains("m2m100"))
+    }
+
+    func testCodesAreUniqueAndLowercase() {
+        XCTAssertEqual(Set(M2M.languages).count, M2M.languages.count)
+        XCTAssertTrue(M2M.languages.allSatisfy { $0 == $0.lowercased() })
+    }
+}
