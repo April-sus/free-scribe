@@ -3,8 +3,14 @@ import XCTest
 @testable import WhisperFlowCore
 
 final class ModelPickerTests: XCTestCase {
-    private func mac(ram: Int, appleSilicon: Bool = true) -> MachineInfo {
-        MachineInfo(chip: appleSilicon ? "Apple M1" : "Intel Core i7", ramGB: ram, cores: 8, appleSilicon: appleSilicon)
+    private func mac(ram: Int, appleSilicon: Bool = true, freeGB: Int = 500) -> MachineInfo {
+        MachineInfo(
+            chip: appleSilicon ? "Apple M1" : "Intel Core i7",
+            ramGB: ram,
+            cores: 8,
+            appleSilicon: appleSilicon,
+            freeStorageGB: freeGB
+        )
     }
 
     func testTiersScaleWithMemory() {
@@ -562,5 +568,66 @@ final class TranslationCoverageTests: XCTestCase {
     func testCodesAreUniqueAndLowercase() {
         XCTAssertEqual(Set(M2M.languages).count, M2M.languages.count)
         XCTAssertTrue(M2M.languages.allSatisfy { $0 == $0.lowercased() })
+    }
+}
+
+
+final class StorageAwareModelTests: XCTestCase {
+    private func phone(ram: Int, freeGB: Int) -> MachineInfo {
+        MachineInfo(chip: "Apple A17", ramGB: ram, cores: 6, appleSilicon: true, freeStorageGB: freeGB)
+    }
+
+    func testAPhoneWithNoRoomGetsASmallerModel() {
+        // 16GB of memory earns the largest model at about a gigabyte. A phone with
+        // 2GB left has none of that to spare once headroom is kept back.
+        let roomy = ModelPicker.fallback(for: phone(ram: 16, freeGB: 200))
+        let cramped = ModelPicker.fallback(for: phone(ram: 16, freeGB: 2))
+        XCTAssertNotEqual(roomy, cramped)
+        XCTAssertLessThan(
+            ModelPicker.sizeGB(of: cramped), ModelPicker.sizeGB(of: roomy),
+            "less space has to mean a smaller model, not the same one"
+        )
+    }
+
+    /// Less room must never mean a bigger model, at any size.
+    func testChoiceNeverGrowsAsSpaceShrinks() {
+        let sizes = [500, 64, 10, 5, 4, 3, 2, 1].map { free in
+            ModelPicker.sizeGB(of: ModelPicker.fallback(for: phone(ram: 16, freeGB: free)))
+        }
+        XCTAssertEqual(sizes, sizes.sorted(by: >), "got \(sizes)")
+    }
+
+    func testWhatIsChosenActuallyFits() {
+        for free in [3, 5, 10, 64, 500] {
+            let chosen = ModelPicker.fallback(for: phone(ram: 8, freeGB: free))
+            let usable = Double(free) - ModelPicker.storageHeadroomGB
+            if usable > ModelPicker.sizeGB(of: "openai_whisper-tiny.en") {
+                XCTAssertLessThanOrEqual(ModelPicker.sizeGB(of: chosen), usable,
+                                         "chose \(chosen) with only \(free)GB free")
+            }
+        }
+    }
+
+    func testHeadroomIsKeptBack() {
+        // Exactly enough room for the model and nothing else is not enough room.
+        let size = ModelPicker.sizeGB(of: "openai_whisper-small.en")
+        let tight = Int(size + 1)
+        let chosen = ModelPicker.largestThatFits(upTo: "openai_whisper-small.en", freeGB: tight)
+        XCTAssertLessThan(ModelPicker.sizeGB(of: chosen), size)
+    }
+
+    func testSomethingIsAlwaysNamedEvenWhenNothingFits() {
+        // Naming nothing would leave the user with no way forward at all.
+        let chosen = ModelPicker.largestThatFits(upTo: "openai_whisper-small.en", freeGB: 1)
+        XCTAssertFalse(chosen.isEmpty)
+        XCTAssertTrue(ModelPicker.catalog.contains { $0.id == chosen })
+    }
+
+    func testUnknownFreeSpaceDoesNotForceTheSmallestModel() {
+        // Volumes that do not report capacity are mostly desktops with room to spare.
+        XCTAssertEqual(
+            ModelPicker.largestThatFits(upTo: "openai_whisper-small.en", freeGB: 0),
+            "openai_whisper-small.en"
+        )
     }
 }

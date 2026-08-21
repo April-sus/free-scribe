@@ -1,3 +1,5 @@
+// iOS has no way to type into another app; a keyboard extension inserts text itself.
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import Foundation
@@ -62,3 +64,5 @@ public enum Paste {
         return true
     }
 }
+
+#endif

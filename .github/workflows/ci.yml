@@ -12,9 +12,17 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Test
-        working-directory: macos
+      - name: Test the shared core
+        working-directory: core
         run: swift test
+      - name: Build the core for iOS
+        working-directory: core
+        # The iOS app depends on this package; if it stops compiling for iOS,
+        # that break should surface here rather than in an app build later.
+        run: |
+          xcodebuild -scheme WhisperFlowCore \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ios" build | tail -5
       - name: Build app bundle
         working-directory: macos
         # No signing identity on a runner, so build.sh falls back to ad-hoc.

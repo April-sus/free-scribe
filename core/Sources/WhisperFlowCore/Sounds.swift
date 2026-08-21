@@ -1,3 +1,5 @@
+// NSSound is AppKit; iOS cues would come from AudioServices instead.
+#if os(macOS)
 import AppKit
 import Foundation
 
@@ -40,3 +42,5 @@ public enum Sounds {
         sound.play()
     }
 }
+
+#endif

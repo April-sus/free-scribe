@@ -1,7 +1,9 @@
 // AVAudioPCMBuffer is not Sendable, but the converter's input block runs
 // synchronously inside convert(to:error:) — the buffer never escapes.
 @preconcurrency import AVFoundation
+#if os(macOS)
 import CoreAudio
+#endif
 import Foundation
 
 /// A microphone the user can pick in Settings. `id` is the CoreAudio device UID,
@@ -54,13 +56,20 @@ public final class Recorder {
 
     public init() {}
 
-    /// Microphones macOS can currently see, for the Settings picker.
+    /// Microphones the system can currently see, for the Settings picker.
+    ///
+    /// iOS routes audio itself and offers no equivalent choice, so the list is
+    /// empty there and the system route is used.
     public static func availableInputs() -> [InputDevice] {
+        #if os(iOS)
+        return []
+        #else
         AVCaptureDevice.DiscoverySession(
             deviceTypes: [.microphone, .external],
             mediaType: .audio,
             position: .unspecified
         ).devices.map { InputDevice(id: $0.uniqueID, name: $0.localizedName) }
+        #endif
     }
 
     public static func requestMicrophoneAccess() async -> Bool {
@@ -80,9 +89,11 @@ public final class Recorder {
         engine.inputNode.removeTap(onBus: 0)
 
         let input = engine.inputNode
+        #if os(macOS)
         // Must happen before the format is read: changing the device changes it.
         // A device that has since been unplugged just leaves us on the default.
         Self.selectDevice(uid: inputDeviceUID, on: input)
+        #endif
 
         let inputFormat = input.inputFormat(forBus: 0)
         guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
@@ -137,6 +148,7 @@ public final class Recorder {
         return captured
     }
 
+    #if os(macOS)
     /// Points AVAudioEngine's input at a specific device. AVAudioEngine has no Swift
     /// API for this — it only ever uses the system default — so it has to be set on
     /// the underlying audio unit.
@@ -179,6 +191,7 @@ public final class Recorder {
         guard status == noErr, deviceID != AudioDeviceID(kAudioObjectUnknown) else { return nil }
         return deviceID
     }
+    #endif
 
     private static func convert(
         _ buffer: AVAudioPCMBuffer,
