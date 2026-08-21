@@ -45,11 +45,10 @@ final class AppState: ObservableObject {
     private let transcriber = Transcriber()
     private lazy var pill = PillWindow()
     private var hotkey: Hotkey?
-    /// Owned here so one session can serve many dictations; the pill hosts the
-    /// worker that drains it.
-    let translator = Translator()
-    /// Everything Apple's translator cannot do. Costs a download, but covers 84
-    /// languages against its 22.
+    /// One translator, the same on every platform. Apple's own was used for the
+    /// languages it knows, but it covered 22 against this one's 98 and produced
+    /// different results from the Windows build for the overlap — a difference
+    /// nobody asked for and nobody could explain.
     let localTranslator = LocalTranslator()
 
     // MARK: Settings (empty string means "decide automatically")
@@ -231,8 +230,8 @@ final class AppState: ObservableObject {
                         let name = Languages.all().first { $0.code == translateTo }?.endonym ?? translateTo
                         Sounds.play(.failed)
                         phase = .error(LocalTranslator.isAvailable
-                            ? "\(name) cannot be translated on this Mac. Choose another language in Dictation."
-                            : "\(name) needs the language pack. Add it in Dictation, or choose another language.")
+                            ? "\(name) cannot be translated. Choose another language in Dictation."
+                            : "Translation needs the language pack. Add it in Dictation.")
                         pill.flash(self, seconds: 5)
                         return
                     }
@@ -344,26 +343,13 @@ final class AppState: ObservableObject {
         let source = language.isEmpty ? (Languages.systemDefault() ?? "en") : language
         guard source != translateTo else { return text }
 
-        // Apple's is better where it exists, needs no download and is already
-        // installed — so it gets first refusal, and the local model covers the
-        // languages it has never heard of.
-        if translator.supports(translateTo), translator.supports(source) {
-            translator.prepare(from: source, to: translateTo)
-            if let result = await translator.translate(text), !result.isEmpty {
-                return result
-            }
-        }
-
-        // Either Apple has never heard of the pair, or it failed. Both are the
-        // language pack's job.
         return await localTranslator.translate(text, from: source, to: translateTo)
     }
 
-    /// Every language that can be translated into by one engine or the other.
+    /// What can be translated into, which is nothing until the pack is installed.
     var translatableTargets: [String] {
-        let apple = Set(translator.supportedTargets)
-        let local = LocalTranslator.isAvailable ? Set(M2M.languages) : []
-        return Languages.codes.filter { apple.contains($0) || local.contains($0) }
+        guard LocalTranslator.isAvailable else { return [] }
+        return Languages.codes.filter(M2M.supports)
     }
 
     func downloadTranslationModel() {

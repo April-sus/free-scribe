@@ -562,8 +562,8 @@ private struct DictationPane: View {
                 Row(
                     title: "Language",
                     detail: LocalTranslator.isAvailable
-                        ? "\(state.translatableTargets.count) languages. Everything runs on this Mac."
-                        : "\(state.translatableTargets.count) built in. Add the language pack below for \(TranslationModel.languageCount)."
+                        ? "\(state.translatableTargets.count) languages, all on this Mac and identical on Windows."
+                        : "Add the language pack below to translate into \(TranslationModel.languageCount) languages."
                 ) {
                     Picker("", selection: $state.translateTo) {
                         // Only what can actually be translated. Offering the rest
@@ -590,7 +590,7 @@ private struct DictationPane: View {
                 if TranslationModel.isInstalled {
                     Row(
                         title: "Language pack",
-                        detail: "Installed. Covers the \(TranslationModel.languageCount) languages Apple's own translator does not."
+                        detail: "Installed. \(TranslationModel.languageCount) languages, and the same results the Windows build gives."
                     ) {
                         Button("Remove") {
                             TranslationModel.remove()
@@ -608,7 +608,7 @@ private struct DictationPane: View {
                 } else {
                     Row(
                         title: "More languages",
-                        detail: "\(TranslationModel.approximateSize) once, then \(TranslationModel.languageCount) languages work offline — including the ones Apple cannot translate at all."
+                        detail: "\(TranslationModel.approximateSize) once, then \(TranslationModel.languageCount) languages work offline. Required for translation."
                     ) {
                         Button("Add") { state.downloadTranslationModel() }
                             .buttonStyle(.borderedProminent)

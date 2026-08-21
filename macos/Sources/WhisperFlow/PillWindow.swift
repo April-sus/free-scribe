@@ -121,9 +121,6 @@ private struct PillView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(minWidth: 240, idealWidth: 280, maxWidth: 420, minHeight: 56)
-        // The pill outlives any single dictation, so the translation session
-        // hangs off it rather than being made and remade per dictation.
-        .translationWorker(state.translator)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(ring, lineWidth: 1.5))
     }
