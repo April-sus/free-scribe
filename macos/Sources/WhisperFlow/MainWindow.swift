@@ -640,12 +640,6 @@ private struct AudioPane: View {
     @ObservedObject var state: AppState
     @State private var inputs = Recorder.availableInputs()
 
-    private static let languages: [(code: String, name: String)] = [
-        ("", "Detect automatically"),
-        ("en", "English"), ("es", "Spanish"), ("fr", "French"), ("de", "German"),
-        ("pt", "Portuguese"), ("it", "Italian"), ("nl", "Dutch"), ("pl", "Polish"),
-        ("ru", "Russian"), ("ja", "Japanese"), ("ko", "Korean"), ("zh", "Chinese"),
-    ]
 
     var body: some View {
         Card(title: "Input") {
@@ -663,11 +657,15 @@ private struct AudioPane: View {
                 .frame(maxWidth: 210)
             }
             RowDivider()
-            Row(title: "Language", detail: "Forcing a language is faster and more accurate than detection.") {
+            Row(title: "Language", detail: "Naming the language is faster and more accurate than letting it be detected. \(Languages.codes.count) are recognised.") {
                 Picker("", selection: $state.language) {
-                    ForEach(Self.languages, id: \.code) { Text($1).tag($0) }
+                    Text("Detect automatically").tag("")
+                    Divider()
+                    ForEach(Languages.all()) { language in
+                        Text(language.label).tag(language.code)
+                    }
                 }
-                .frame(maxWidth: 210)
+                .frame(maxWidth: 240)
             }
         }
         .onAppear { inputs = Recorder.availableInputs() }

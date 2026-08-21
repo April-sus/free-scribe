@@ -426,3 +426,37 @@ final class HistorySearchTests: XCTestCase {
         XCTAssertEqual(items.matching(search: "unrelated", period: .all).count, 0)
     }
 }
+
+final class LanguageTests: XCTestCase {
+    func testEveryLanguageHasAName() {
+        // A code showing as a bare "sw" in the menu would be a bug, not a language.
+        let unnamed = Languages.all().filter { $0.endonym == $0.code }
+        XCTAssertTrue(unnamed.isEmpty, "no native name for: \(unnamed.map(\.code))")
+    }
+
+    func testNamesAreInTheirOwnLanguage() {
+        let all = Languages.all()
+        XCTAssertEqual(all.first { $0.code == "fr" }?.endonym, "français")
+        XCTAssertEqual(all.first { $0.code == "de" }?.endonym, "Deutsch")
+        XCTAssertEqual(all.first { $0.code == "ja" }?.endonym, "日本語")
+    }
+
+    func testLabelAddsATranslationOnlyWhenItDiffers() {
+        let english = Locale(identifier: "en")
+        let all = Languages.all(displayedIn: english)
+        // English reading English needs no gloss; English reading Japanese does.
+        XCTAssertEqual(all.first { $0.code == "en" }?.label, "English")
+        XCTAssertEqual(all.first { $0.code == "ja" }?.label, "日本語 — Japanese")
+    }
+
+    func testCodesAreUnique() {
+        XCTAssertEqual(Set(Languages.codes).count, Languages.codes.count)
+    }
+
+    func testTheSystemLanguageIsOnlyOfferedWhenItCanBeHeard() {
+        // Returns nil rather than a code the recogniser does not know.
+        if let code = Languages.systemDefault() {
+            XCTAssertTrue(Languages.codes.contains(code))
+        }
+    }
+}
