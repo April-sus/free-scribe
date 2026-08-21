@@ -26,11 +26,20 @@ final class MainWindow: NSObject, NSWindowDelegate {
             window.contentMinSize = NSSize(width: 660, height: 460)
             window.isReleasedWhenClosed = false
             window.delegate = shared
+            // Come to whichever Space is in front, including over a full-screen app.
+            // Without this, macOS switches the user away to wherever the window was
+            // first created — which, for a menu-bar app opened from anywhere, is
+            // almost never where they are now.
+            window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
             window.center()
             self.window = window
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Re-applied on every show: a window that has been closed and reopened can
+        // otherwise settle back onto the Space it came from.
+        window?.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window?.center()
         window?.makeKeyAndOrderFront(nil)
     }
 
@@ -346,10 +355,7 @@ private struct Sidebar: View {
 
             Spacer()
 
-            Button("Done") {
-                state.seenWelcome = true
-                MainWindow.done()
-            }
+            Button("Done") { MainWindow.done() }
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
             .padding(14)

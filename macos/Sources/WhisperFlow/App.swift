@@ -5,6 +5,18 @@ import WhisperFlowCore
 /// feedback — it just looks dead. Catch the reopen and show the window instead.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Opening the app opens the window — one click, not two.
+    ///
+    /// The exception is the launch macOS performs at login, which the user did not
+    /// ask for. `launchIsDefaultUserInfoKey` is false for those; SMAppService's own
+    /// status is not a usable substitute, since it reports `.enabled` even when the
+    /// app is nowhere in Login Items.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let openedByUser = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true
+        guard openedByUser || AppState.shared.needsSetup else { return }
+        MainWindow.show(AppState.shared)
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainWindow.show(AppState.shared)
         return true

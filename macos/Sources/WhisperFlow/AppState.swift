@@ -66,9 +66,7 @@ final class AppState: ObservableObject {
         get { DictationStyle(rawValue: styleRaw) ?? .tidy }
         set { styleRaw = newValue.rawValue }
     }
-    /// Until the user has dismissed the window once, every launch shows it — a
-    /// menu-bar app that opens to nothing at all reads as a failed launch.
-    @AppStorage("seenWelcome") var seenWelcome = false
+
 
     /// The model this machine should run, honouring a manual override.
     var activeModel: String {
@@ -86,9 +84,8 @@ final class AppState: ObservableObject {
         Sounds.enabled = soundsEnabled
         hotkey = Hotkey(state: self)
 
-        if needsSetup || !seenWelcome {
-            Task { @MainActor in MainWindow.show(self) }
-        }
+        // Whether to show the window at launch is decided by the app delegate,
+        // which is the only place that can tell a user launch from a login one.
         if !needsSetup {
             Task { await prepareModel() }
         }
