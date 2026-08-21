@@ -1,4 +1,11 @@
 name: FreeScribe
+# Signing is left to Xcode's automatic handling: a personal team can provision a
+# device without any of this being checked in.
+settings:
+  base:
+    DEVELOPMENT_TEAM: RDDHPR73MC
+    CODE_SIGN_STYLE: Automatic
+
 options:
   bundleIdPrefix: local.freescribe
   deploymentTarget:

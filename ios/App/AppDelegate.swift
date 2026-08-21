@@ -40,10 +40,14 @@ struct ProbeView: View {
 
     private func report(_ stage: String) -> String {
         let machine = MachineInfo.probe()
-        return """
+        let text = """
         \(MemoryProbe.describe(stage))
-        \(machine.ramGB) GB memory, \(machine.freeStorageGB) GB free
+        \(machine.chip), \(machine.ramGB) GB memory, \(machine.freeStorageGB) GB free
         would choose \(ModelPicker.label(for: ModelPicker.fallback(for: machine)))
         """
+        // Logged as well as shown: the figure matters more than the label, and it
+        // is easier to read off a console than a phone screen.
+        NSLog("[free-scribe] %@", text.replacingOccurrences(of: "\n", with: " | "))
+        return text
     }
 }

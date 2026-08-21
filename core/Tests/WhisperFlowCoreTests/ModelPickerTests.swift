@@ -631,3 +631,25 @@ final class StorageAwareModelTests: XCTestCase {
         )
     }
 }
+
+final class HardwareProbeTests: XCTestCase {
+    func testAMissingSysctlKeyIsNilRatherThanACrash() {
+        // A key that exists on no platform. This used to hand an empty buffer to
+        // String(cString:), which traps — every launch on a real iPhone died here
+        // while the simulator, running on a Mac where the key exists, was fine.
+        XCTAssertNil(MachineInfo.sysctlString("free.scribe.nonexistent.key"))
+    }
+
+    func testAKeyThatExistsComesBackWithContent() {
+        // hw.machine is published on every Apple platform.
+        let machine = MachineInfo.sysctlString("hw.machine")
+        XCTAssertNotNil(machine)
+        XCTAssertFalse(machine?.isEmpty ?? true)
+    }
+
+    func testProbingNeverProducesAnEmptyDescription() {
+        let info = MachineInfo.probe()
+        XCTAssertFalse(info.chip.isEmpty)
+        XCTAssertFalse(info.summary.isEmpty)
+    }
+}

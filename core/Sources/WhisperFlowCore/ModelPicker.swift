@@ -13,19 +13,40 @@ public struct MachineInfo: Sendable {
     public let freeStorageGB: Int
 
     public static func probe() -> MachineInfo {
-        var size = 0
-        sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
-        var bytes = [CChar](repeating: 0, count: size)
-        sysctlbyname("machdep.cpu.brand_string", &bytes, &size, nil, 0)
-        let chip = String(cString: bytes)
+        // Macs name the processor; iOS does not publish that key at all and gives
+        // the model identifier instead, so ask for whichever exists here.
+        #if os(macOS)
+        let chip = sysctlString("machdep.cpu.brand_string") ?? "Unknown CPU"
+        #else
+        let chip = sysctlString("hw.machine") ?? "Unknown device"
+        #endif
 
         return MachineInfo(
-            chip: chip.isEmpty ? "Unknown CPU" : chip,
+            chip: chip.isEmpty ? "Unknown" : chip,
             ramGB: Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824),
             cores: ProcessInfo.processInfo.processorCount,
             appleSilicon: chip.hasPrefix("Apple"),
             freeStorageGB: Self.freeStorageGB()
         )
+    }
+
+    /// Reads a sysctl string, or nil when the key does not exist on this platform.
+    ///
+    /// The size has to be checked: a missing key leaves it at zero, and handing an
+    /// empty buffer to `String(cString:)` is a trap rather than an empty string.
+    /// That crashed every launch on a real iPhone while the simulator — running on
+    /// a Mac, where the key exists — was perfectly happy.
+    static func sysctlString(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+
+        // Trust the reported length rather than assuming a terminator is present.
+        let characters = bytes.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+        let text = String(decoding: characters, as: UTF8.self)
+        return text.isEmpty ? nil : text
     }
 
     /// Space the system says an app may reasonably use, which is not the same as
