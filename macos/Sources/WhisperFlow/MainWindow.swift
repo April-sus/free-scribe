@@ -128,7 +128,7 @@ private struct HistoryPane: View {
                     .padding(.vertical, 12)
             }
         } else {
-            Card(title: "Transcripts", footnote: "Click any of them to copy it to your clipboard. Where the recording is still stored, it can be transcribed again.") {
+            Card(title: "Transcripts", footnote: "Copy any of them back to the clipboard. The last \(AudioCache.limit) recordings are kept, so those can be run through the recogniser again — useful when a word came out wrong.") {
                 ForEach(Array(state.history.entries.enumerated()), id: \.element.id) { index, transcript in
                     TranscriptRow(state: state, transcript: transcript)
                     if index < state.history.entries.count - 1 { RowDivider() }
@@ -171,53 +171,49 @@ private struct TranscriptRow: View {
     let transcript: Transcript
     @State private var hovering = false
 
-    private var subtitle: String {
-        let when = transcript.date.formatted(date: .abbreviated, time: .shortened)
-        return transcript.canRetranscribe
-            ? "\(when) · \(transcript.style) · recording kept"
-            : "\(when) · \(transcript.style)"
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(transcript.text)
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(subtitle)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(transcript.text)
+                .lineLimit(4)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack(spacing: 8) {
+                Text("\(transcript.date.formatted(date: .abbreviated, time: .shortened)) · \(transcript.style)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
 
-            if transcript.canRetranscribe {
-                Button {
-                    state.retranscribe(transcript)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .foregroundStyle(Theme.accent)
+                Spacer(minLength: 8)
+
+                // Always visible. These were drawn only while the pointer was over
+                // the row, which meant nobody could find them.
+                Button("Copy") { state.copyToClipboard(transcript) }
+                    .controlSize(.small)
+
+                if transcript.canRetranscribe {
+                    Button("Transcribe again") { state.retranscribe(transcript) }
+                        .controlSize(.small)
+                        .help("Runs the original recording through again")
+                } else {
+                    Text("recording cleared")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                        .help("Only the last \(AudioCache.limit) recordings are kept, so this one cannot be redone.")
                 }
-                .buttonStyle(.plain)
-                .opacity(hovering ? 1 : 0)
-                .help("Transcribe again from the original recording")
-            }
 
-            Button {
-                state.delete(transcript)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                Button {
+                    state.delete(transcript)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .controlSize(.small)
+                .help("Delete this transcript and its recording")
             }
-            .buttonStyle(.plain)
-            .opacity(hovering ? 1 : 0)
-            .help("Delete this transcript and its recording")
         }
         .padding(.horizontal, Theme.cardPadding)
-        .padding(.vertical, 11)
-        .background(hovering ? Theme.accent.opacity(0.07) : .clear)
-        .contentShape(Rectangle())
-        .onTapGesture { state.copyToClipboard(transcript) }
+        .padding(.vertical, 12)
+        .background(hovering ? Theme.accent.opacity(0.05) : .clear)
         .onHover { hovering = $0 }
     }
 }
