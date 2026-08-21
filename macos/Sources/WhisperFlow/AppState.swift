@@ -224,10 +224,15 @@ final class AppState: ObservableObject {
                 // was inserted — the point of the mode is being able to check it.
                 var original: String?
                 if style == .translated, !text.isEmpty {
-                    guard translator.supports(translateTo) else {
+                    // Whether a language is reachable is decided by both engines
+                    // together — the guard here used to ask only Apple, so anything
+                    // the language pack handles was refused before it was tried.
+                    guard translatableTargets.contains(translateTo) else {
                         let name = Languages.all().first { $0.code == translateTo }?.endonym ?? translateTo
                         Sounds.play(.failed)
-                        phase = .error("This Mac cannot translate into \(name). Choose another language in Dictation.")
+                        phase = .error(LocalTranslator.isAvailable
+                            ? "\(name) cannot be translated on this Mac. Choose another language in Dictation."
+                            : "\(name) needs the language pack. Add it in Dictation, or choose another language.")
                         pill.flash(self, seconds: 5)
                         return
                     }
@@ -343,9 +348,14 @@ final class AppState: ObservableObject {
         // installed — so it gets first refusal, and the local model covers the
         // languages it has never heard of.
         if translator.supports(translateTo), translator.supports(source) {
-            if let result = await translator.translate(text) { return result }
+            translator.prepare(from: source, to: translateTo)
+            if let result = await translator.translate(text), !result.isEmpty {
+                return result
+            }
         }
 
+        // Either Apple has never heard of the pair, or it failed. Both are the
+        // language pack's job.
         return await localTranslator.translate(text, from: source, to: translateTo)
     }
 

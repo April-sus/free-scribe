@@ -2,6 +2,39 @@ import AppKit
 import Foundation
 import WhisperFlowCore
 
+// Checks the translation path end to end without needing a microphone:
+//   FreeScribe --translate "Hello there" lv
+if let index = CommandLine.arguments.firstIndex(of: "--translate"), index + 2 < CommandLine.arguments.count {
+    let text = CommandLine.arguments[index + 1]
+    let target = CommandLine.arguments[index + 2]
+
+    // No semaphore here: the sidecar's replies arrive on the main actor, and
+    // blocking the main thread to wait for them deadlocks. Let the run loop turn
+    // and exit from inside the task instead.
+    Task { @MainActor in
+        defer { exit(0) }
+        print("language pack installed: \(TranslationModel.isInstalled)")
+        print("sidecar found: \(LocalTranslator.executable?.lastPathComponent ?? "no")")
+        print("languages via the pack: \(M2M.languages.count)")
+
+        guard LocalTranslator.isAvailable else {
+            print("the language pack is not usable, so only Apple's languages would work")
+            return
+        }
+
+        let translator = LocalTranslator()
+        let started = Date()
+        let result = await translator.translate(text, from: "en", to: target)
+        translator.stop()
+
+        print("en -> \(target) in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
+        print("  said: \(text)")
+        print("  got : \(result ?? "<nothing>")")
+    }
+
+    RunLoop.main.run()
+}
+
 if CommandLine.arguments.contains("--devices") {
     for device in MainActor.assumeIsolated({ Recorder.availableInputs() }) {
         print("\(device.name)\t\(device.id)")
