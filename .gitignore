@@ -26,3 +26,7 @@ windows/app/THIRD-PARTY-NOTICES.txt
 
 # Rust build output
 translator/target/
+
+# Xcode
+ios/FreeScribe.xcodeproj/
+ios/**/xcuserdata/

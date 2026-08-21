@@ -23,3 +23,31 @@ documented. Whether WhisperKit can load inside one decides the architecture:
   through a shared app group, which is slower and more fragile.
 
 `memory-probe/` exists to answer that before anything is built on top of it.
+
+## What the probe found
+
+Measured in the iPhone 17 Pro simulator, iOS 26.5:
+
+| | footprint |
+|---|---|
+| app at launch | 17.4 MB |
+| after loading `tiny.en` | 35.1 MB |
+
+So the smallest model costs about 18MB. Keyboard extensions have historically been
+held to roughly 48-60MB, which means **tiny.en plausibly fits inside one** — the
+keyboard could transcribe directly rather than handing audio to the containing app.
+
+Two things that figure does not settle:
+
+- **The simulator does not enforce an extension's memory limit**, and it reports the
+  host Mac's hardware rather than a phone's: this run claimed 48GB of memory and
+  492GB free, so it chose the largest model. Both the ceiling and the hardware
+  tiering need a real device.
+- Only `tiny.en` was measured. `base.en` is roughly twice the weights and may not fit.
+
+## Next
+
+1. Run the same probe on a device, inside the keyboard rather than the app.
+2. If it fits: audio capture in the extension, which needs `RequestsOpenAccess`.
+3. If it does not: the keyboard records and the containing app transcribes, through
+   a shared app group.

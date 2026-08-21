@@ -1,0 +1,48 @@
+name: FreeScribe
+options:
+  bundleIdPrefix: local.freescribe
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  WhisperFlowCore:
+    path: ../core
+
+targets:
+  FreeScribe:
+    type: application
+    platform: iOS
+    sources: [App, memory-probe]
+    dependencies:
+      - package: WhisperFlowCore
+      - target: FreeScribeKeyboard
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Free Scribe
+        UILaunchScreen: {}
+        NSMicrophoneUsageDescription: Free Scribe transcribes your speech on this device. Audio is never sent anywhere.
+
+  FreeScribeKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [Keyboard, memory-probe]
+    settings:
+      # An extension's identifier has to sit underneath its app's, not beside it.
+      PRODUCT_BUNDLE_IDENTIFIER: local.freescribe.FreeScribe.Keyboard
+    dependencies:
+      - package: WhisperFlowCore
+    info:
+      path: Keyboard/Info.plist
+      properties:
+        CFBundleDisplayName: Free Scribe
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: en-US
+            # Needed for the microphone and for sharing anything with the app.
+            RequestsOpenAccess: true
