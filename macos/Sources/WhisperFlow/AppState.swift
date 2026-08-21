@@ -221,9 +221,16 @@ final class AppState: ObservableObject {
                 // was inserted — the point of the mode is being able to check it.
                 var original: String?
                 if style == .translated, !text.isEmpty {
-                    guard let translated = await translate(text) else {
+                    guard translator.supports(translateTo) else {
+                        let name = Languages.all().first { $0.code == translateTo }?.endonym ?? translateTo
                         Sounds.play(.failed)
-                        phase = .error("Could not translate that — nothing was inserted")
+                        phase = .error("This Mac cannot translate into \(name). Choose another language in Dictation.")
+                        pill.flash(self, seconds: 5)
+                        return
+                    }
+                    guard let translated = await translate(text), !translated.isEmpty else {
+                        Sounds.play(.failed)
+                        phase = .error("Could not translate that — what you said was not inserted")
                         pill.flash(self, seconds: 4)
                         return
                     }

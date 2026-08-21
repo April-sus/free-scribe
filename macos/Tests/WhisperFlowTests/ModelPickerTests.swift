@@ -502,3 +502,21 @@ final class TranslationTests: XCTestCase {
         XCTAssertFalse(history.entries[0].isTranslation)
     }
 }
+
+final class SilenceGateTests: XCTestCase {
+    /// Measured from a real microphone rather than synthesised speech: quiet
+    /// dictation peaks around 0.016, which the original 0.01 gate nearly rejected.
+    func testQuietRealSpeechIsWellAboveTheGate() {
+        let quiet = (0..<32000).map { index in sin(Float(index) * 0.05) * 0.016 }
+        XCTAssertGreaterThan(Transcriber.peak(of: quiet), Transcriber.silenceThreshold)
+        XCTAssertGreaterThan(
+            Transcriber.peak(of: quiet) / Transcriber.silenceThreshold, 3,
+            "a real microphone needs room to spare, not a hair's breadth"
+        )
+    }
+
+    func testADeadMicrophoneIsStillRejected() {
+        XCTAssertLessThan(Transcriber.peak(of: [Float](repeating: 0, count: 32000)),
+                          Transcriber.silenceThreshold)
+    }
+}

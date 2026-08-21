@@ -85,10 +85,15 @@ public actor Transcriber {
         loadedModel = nil
     }
 
-    /// Below this, treat the recording as nothing said. Measured: silence and room
-    /// tone peak at 0.002 or less, speech at 0.19 or more, so this sits with two
-    /// orders of magnitude of margin either side.
-    public static let silenceThreshold: Float = 0.01
+    /// Below this, treat the recording as nothing said.
+    ///
+    /// The first value here was calibrated against synthesised speech, which peaks
+    /// around 0.19. Real microphones are far quieter — measured against actual
+    /// recordings, quiet speech peaks at 0.016 — which left almost no margin and
+    /// threw away short or softly spoken phrases before the recogniser saw them.
+    /// Whisper's own no-speech thresholds are the real defence against silence;
+    /// this only has to catch a dead microphone.
+    public static let silenceThreshold: Float = 0.004
 
     /// Whisper works on a long window and returns nothing at all for very short
     /// clips, so anything briefer than this is padded with silence.

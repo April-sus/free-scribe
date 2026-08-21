@@ -17,6 +17,29 @@ final class Translator: ObservableObject {
 
     /// Changing this is what causes SwiftUI to vend a new session.
     @Published private(set) var configuration: TranslationSession.Configuration?
+    /// The languages this Mac can actually translate into. Far fewer than the
+    /// recogniser understands — 22 against 98 — so the two lists must not be
+    /// confused for one another.
+    @Published private(set) var supportedTargets: [String] = []
+
+    /// A pair the system cannot handle never produces a session, so a request for
+    /// one would otherwise wait forever. Nothing is allowed to wait longer than this.
+    private static let timeout: Duration = .seconds(20)
+
+    init() {
+        Task { await loadSupported() }
+    }
+
+    private func loadSupported() async {
+        let languages = await LanguageAvailability().supportedLanguages
+        let codes = Set(languages.compactMap { $0.languageCode?.identifier })
+        // Ordered like the main language list, so the menu reads the same way.
+        supportedTargets = Languages.codes.filter(codes.contains)
+    }
+
+    func supports(_ code: String) -> Bool {
+        supportedTargets.isEmpty || supportedTargets.contains(code)
+    }
 
     private var jobs: [Job] = []
     private var waiting: CheckedContinuation<Job, Never>?
@@ -52,12 +75,20 @@ final class Translator: ObservableObject {
     func translate(_ text: String) async -> String? {
         await withCheckedContinuation { continuation in
             var resumed = false
-            let job = Job(text: text) { result in
+            let finish: (String?) -> Void = { result in
                 guard !resumed else { return }
                 resumed = true
                 continuation.resume(returning: result)
             }
-            submit(job)
+
+            // An unsupported pair never gets a session, and without this the caller
+            // would wait on a worker that is never going to exist.
+            Task { @MainActor in
+                try? await Task.sleep(for: Self.timeout)
+                finish(nil)
+            }
+
+            submit(Job(text: text, finish: finish))
         }
     }
 

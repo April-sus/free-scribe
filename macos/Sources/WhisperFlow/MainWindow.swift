@@ -559,13 +559,29 @@ private struct DictationPane: View {
                 title: "Translate into",
                 footnote: "You keep dictating in your own language — whatever the Audio pane is set to listen for. The translation is what gets inserted, and what you actually said is kept beside it in History."
             ) {
-                Row(title: "Language", detail: "Downloaded the first time you use a pair, then it works offline.") {
+                Row(
+                    title: "Language",
+                    detail: "Downloaded the first time you use a pair, then it works offline."
+                ) {
                     Picker("", selection: $state.translateTo) {
-                        ForEach(Languages.all()) { language in
+                        // Only what this Mac can actually translate into. The
+                        // recogniser understands far more languages than the
+                        // translator does, and offering the difference just
+                        // produces failures at the moment of speaking.
+                        ForEach(Languages.all().filter { state.translator.supports($0.code) }) { language in
                             Text(language.label).tag(language.code)
                         }
                     }
                     .frame(maxWidth: 240)
+                }
+                if !state.translator.supports(state.translateTo) {
+                    RowDivider()
+                    Row(
+                        title: "That language cannot be translated here",
+                        detail: "\(Languages.all().first { $0.code == state.translateTo }?.label ?? state.translateTo) is not one this Mac can translate into, so dictation would fail. Pick another."
+                    ) {
+                        Button("Use English") { state.translateTo = "en" }
+                    }
                 }
             }
         }
