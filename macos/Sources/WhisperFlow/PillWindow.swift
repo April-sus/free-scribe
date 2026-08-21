@@ -98,17 +98,32 @@ private struct PillView: View {
         HStack(spacing: 12) {
             Waveform(levels: state.levels, active: state.phase == .recording)
                 .frame(width: 84, height: 24)
-            Text(label)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.primary)
-                // No line limit: an error that cannot be read is no better than
-                // no error. The panel resizes to whatever this needs.
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.primary)
+                    // No line limit: an error that cannot be read is no better
+                    // than no error. The panel resizes to whatever this needs.
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // What was said, when what was inserted is a translation of it.
+                // Checking the two against each other is the point of the mode.
+                if let original = state.lastOriginal, state.phase == .idle {
+                    Text("you said: \(original)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(minWidth: 240, idealWidth: 280, maxWidth: 420, minHeight: 56)
+        // The pill outlives any single dictation, so the translation session
+        // hangs off it rather than being made and remade per dictation.
+        .translationWorker(state.translator)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(ring, lineWidth: 1.5))
     }

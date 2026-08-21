@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "WhisperFlow",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "2.0.0"),

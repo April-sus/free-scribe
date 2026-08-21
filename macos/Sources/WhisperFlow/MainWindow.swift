@@ -347,11 +347,31 @@ private struct TranscriptRow: View {
                 // No fixedSize here. Paired with a line limit it tells the text to
                 // take its full ideal height while the layout has only allotted six
                 // lines, and the overflow draws straight over the row beneath.
-                Text(transcript.text)
-                    .lineLimit(expanded ? nil : 6)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                // Original first, translation under it: you read what you said,
+                // then what went into the document.
+                if let original = transcript.original {
+                    Text(original)
+                        .lineLimit(expanded ? nil : 3)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.accent)
+                        Text(transcript.text)
+                            .lineLimit(expanded ? nil : 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                } else {
+                    Text(transcript.text)
+                        .lineLimit(expanded ? nil : 6)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
 
                 if isLong {
                     Button(expanded ? "Show less" : "Show more") {
@@ -376,8 +396,11 @@ private struct TranscriptRow: View {
                 Spacer(minLength: 8)
 
                 if !transcript.failed {
-                    Button("Copy") { state.copyToClipboard(transcript) }
-                        .controlSize(.small)
+                    // Copies the translation, which is the text that was wanted.
+                    Button(transcript.isTranslation ? "Copy translation" : "Copy") {
+                        state.copyToClipboard(transcript)
+                    }
+                    .controlSize(.small)
                 }
 
                 if transcript.canRetranscribe {
@@ -528,6 +551,22 @@ private struct DictationPane: View {
                 .buttonStyle(.plain)
 
                 if index < DictationStyle.allCases.count - 1 { RowDivider() }
+            }
+        }
+
+        if state.style == .translated {
+            Card(
+                title: "Translate into",
+                footnote: "You keep dictating in your own language — whatever the Audio pane is set to listen for. The translation is what gets inserted, and what you actually said is kept beside it in History."
+            ) {
+                Row(title: "Language", detail: "Downloaded the first time you use a pair, then it works offline.") {
+                    Picker("", selection: $state.translateTo) {
+                        ForEach(Languages.all()) { language in
+                            Text(language.label).tag(language.code)
+                        }
+                    }
+                    .frame(maxWidth: 240)
+                }
             }
         }
 

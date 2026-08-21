@@ -19,6 +19,9 @@ public enum DictationStyle: String, CaseIterable, Identifiable, Sendable {
     /// On-device LLM pass that decides filler by filler which ones were stalling and
     /// which ones the speaker meant. Costs about a second.
     case polished
+    /// Dictate in your own language, insert it in another. The original is kept
+    /// alongside so you can check it says what you meant.
+    case translated
 
     public var id: String { rawValue }
 
@@ -28,6 +31,7 @@ public enum DictationStyle: String, CaseIterable, Identifiable, Sendable {
         case .scribe: "Scribe (NAPLAN rules)"
         case .tidy: "Remove every filler"
         case .polished: "Decide filler by filler"
+        case .translated: "Translate as I speak"
         }
     }
 
@@ -36,6 +40,7 @@ public enum DictationStyle: String, CaseIterable, Identifiable, Sendable {
         case .verbatim: "Every word as spoken, including “um” and “uh”."
         case .scribe: "Word for word in lower case, with no punctuation the student did not dictate. Every mark needs the word “command” in front — “command comma”, “command full stop”, “command new paragraph”, “command capital y”. Nothing is added, removed or improved."
         case .tidy: "Strips all “um”, “uh”, stray “you know” and repeated words by rule. Instant, but it judges nothing."
+        case .translated: "Speak in your own language and the translation is inserted instead. What you actually said is kept beside it, so you can check it means what you intended. Translation happens on this machine."
         case .polished: "Keeps the “um”s you meant — a real pause before a considered answer — and drops the ones that were only stalling. Also fixes false starts and punctuation. Runs on this Mac, adds about a second."
         }
     }
@@ -75,6 +80,10 @@ public enum Cleanup {
         case .scribe: scribed(text, spokenCapitals: spokenCapitals)
         case .tidy: tidied(text)
         case .polished: await polished(text)
+        // The translator produces fluent output of its own, so running the filler
+        // pass first would change what it is given rather than what it returns.
+        // Translation itself happens afterwards, where a translator is available.
+        case .translated: text
         }
     }
 

@@ -460,3 +460,45 @@ final class LanguageTests: XCTestCase {
         }
     }
 }
+
+final class TranslationTests: XCTestCase {
+    func testATranslationKeepsWhatWasActuallySaid() {
+        var history = History()
+        let entry = history.record("Bonjour", style: .translated, original: "Hello")!
+
+        XCTAssertTrue(entry.isTranslation)
+        XCTAssertEqual(entry.original, "Hello", "the original is the point of the mode")
+        XCTAssertEqual(entry.text, "Bonjour", "text is what was inserted, so copying gives the translation")
+    }
+
+    func testOtherStylesCarryNoOriginal() {
+        var history = History()
+        let entry = history.record("hello there", style: .tidy)!
+        XCTAssertFalse(entry.isTranslation)
+        XCTAssertNil(entry.original)
+    }
+
+    func testRetranscribingATranslationKeepsTheOriginal() {
+        var history = History()
+        let entry = history.record("Bonjour", style: .translated, original: "Hello")!
+        history.update(entry.id, text: "Salut")
+
+        XCTAssertEqual(history.entries[0].text, "Salut")
+        XCTAssertEqual(history.entries[0].original, "Hello", "a retry must not discard what was said")
+    }
+
+    func testTranslatedTextIsLeftForTheTranslatorRatherThanTidied() async {
+        // The filler pass would only change what the translator is handed.
+        let spoken = "um so I I think this is fine"
+        let result = await Cleanup.apply(spoken, style: .translated)
+        XCTAssertEqual(result, spoken)
+    }
+
+    func testEntriesWrittenBeforeTranslationExistedStillDecode() throws {
+        let json = """
+        {"entries":[{"id":"\(UUID().uuidString)","text":"older","date":768000000,"style":"Verbatim"}]}
+        """
+        let history = try JSONDecoder().decode(History.self, from: Data(json.utf8))
+        XCTAssertFalse(history.entries[0].isTranslation)
+    }
+}

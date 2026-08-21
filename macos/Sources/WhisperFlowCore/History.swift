@@ -10,19 +10,25 @@ public struct Transcript: Codable, Identifiable, Sendable, Equatable {
     /// Why it failed, or nil when it worked. Optional so entries written before
     /// failures were recorded still decode.
     public var failureReason: String?
+    /// What was actually said, when `text` is a translation of it. Nil for every
+    /// other style, and for entries written before translation existed.
+    public var original: String?
+
+    public var isTranslation: Bool { original != nil }
 
     public var failed: Bool { failureReason != nil }
 
-    public init(text: String, date: Date = Date(), style: String, failureReason: String? = nil) {
-        self.init(id: UUID(), text: text, date: date, style: style, failureReason: failureReason)
+    public init(text: String, date: Date = Date(), style: String, failureReason: String? = nil, original: String? = nil) {
+        self.init(id: UUID(), text: text, date: date, style: style, failureReason: failureReason, original: original)
     }
 
-    public init(id: UUID, text: String, date: Date, style: String, failureReason: String? = nil) {
+    public init(id: UUID, text: String, date: Date, style: String, failureReason: String? = nil, original: String? = nil) {
         self.id = id
         self.text = text
         self.date = date
         self.style = style
         self.failureReason = failureReason
+        self.original = original
     }
 
     /// True while the original recording is still cached and can be run again.
@@ -41,11 +47,11 @@ public struct History: Codable, Sendable {
 
     /// - Returns: the new entry, whose id also names its cached audio.
     @discardableResult
-    public mutating func record(_ text: String, style: DictationStyle) -> Transcript? {
+    public mutating func record(_ text: String, style: DictationStyle, original: String? = nil) -> Transcript? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let transcript = Transcript(text: trimmed, style: style.label)
+        let transcript = Transcript(text: trimmed, style: style.label, original: original)
         entries.insert(transcript, at: 0)
         return transcript
     }
@@ -69,7 +75,8 @@ public struct History: Codable, Sendable {
             text: text,
             date: entries[index].date,
             style: entries[index].style,
-            failureReason: nil
+            failureReason: nil,
+            original: entries[index].original
         )
     }
 

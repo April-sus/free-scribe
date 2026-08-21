@@ -25,6 +25,9 @@ final class AppState: ObservableObject {
     /// Recent loudness values driving the waveform in the pill.
     @Published private(set) var levels: [Float] = []
     @Published private(set) var lastTranscript = ""
+    /// What was said, when the last dictation was translated. Shown in the pill so
+    /// the original can be checked against the insertion.
+    @Published private(set) var lastOriginal: String?
     @Published var needsSetup: Bool
     /// Local-only usage totals. Loaded once, written after each dictation.
     @Published var stats = Stats.load()
@@ -42,6 +45,9 @@ final class AppState: ObservableObject {
     private let transcriber = Transcriber()
     private lazy var pill = PillWindow()
     private var hotkey: Hotkey?
+    /// Owned here so one session can serve many dictations; the pill hosts the
+    /// worker that drains it.
+    let translator = Translator()
 
     // MARK: Settings (empty string means "decide automatically")
 
@@ -49,6 +55,8 @@ final class AppState: ObservableObject {
     @AppStorage("language") var language = "en"
     /// CoreAudio UID of the chosen microphone; empty means the system default.
     @AppStorage("inputDevice") var inputDevice = ""
+    /// What "Translate as I speak" translates into.
+    @AppStorage("translateTo") var translateTo = "fr"
     @AppStorage("style") private var styleRaw = DictationStyle.tidy.rawValue
     /// Scribe mode only: let the student say "capital y" to get an uppercase letter.
     @AppStorage("spokenCapitals") var spokenCapitals = true
@@ -207,7 +215,21 @@ final class AppState: ObservableObject {
                 // First dictation after launch may still be loading the model.
                 if await transcriber.loadedModel == nil { await prepareModel() }
                 let spoken = try await transcriber.transcribe(samples: samples, language: language.isEmpty ? nil : language)
-                let text = await Cleanup.apply(spoken, style: style, spokenCapitals: spokenCapitals)
+                var text = await Cleanup.apply(spoken, style: style, spokenCapitals: spokenCapitals)
+
+                // Kept so the history can show what was actually said beside what
+                // was inserted — the point of the mode is being able to check it.
+                var original: String?
+                if style == .translated, !text.isEmpty {
+                    guard let translated = await translate(text) else {
+                        Sounds.play(.failed)
+                        phase = .error("Could not translate that — nothing was inserted")
+                        pill.flash(self, seconds: 4)
+                        return
+                    }
+                    original = text
+                    text = translated
+                }
 
                 guard token == generation else { return }
 
@@ -223,7 +245,7 @@ final class AppState: ObservableObject {
                 stats.record(spoken: spoken, seconds: seconds)
                 stats.save()
 
-                if let transcript = history.record(text, style: style) {
+                if let transcript = history.record(text, style: style, original: original) {
                     // Stored under the transcript's own id, so the board knows which
                     // recording belongs to which line.
                     if keepAudio { AudioCache.store(samples, id: transcript.id, keepingLast: audioLimit) }
@@ -231,6 +253,7 @@ final class AppState: ObservableObject {
                 }
                 Sounds.play(.inserted)
                 lastTranscript = text
+                lastOriginal = original
                 if !Paste.insert(text) {
                     phase = .error("Copied to clipboard — grant Accessibility to paste automatically")
                     Paste.requestTrust()
@@ -297,6 +320,17 @@ final class AppState: ObservableObject {
         let transcript = history.recordFailure(reason, style: style)
         if keepAudio { AudioCache.store(samples, id: transcript.id, keepingLast: audioLimit) }
         history.save()
+    }
+
+    /// The source is whatever the recogniser was told to listen for; when that is
+    /// "detect automatically" there is nothing to tell the translator, so the
+    /// machine's own language is the best available guess.
+    private func translate(_ text: String) async -> String? {
+        let source = language.isEmpty ? (Languages.systemDefault() ?? "en") : language
+        guard source != translateTo else { return text }
+
+        translator.prepare(from: source, to: translateTo)
+        return await translator.translate(text)
     }
 
     private func ensureMicrophone() async -> Bool {
