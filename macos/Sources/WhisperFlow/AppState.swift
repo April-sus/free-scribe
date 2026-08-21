@@ -28,6 +28,11 @@ final class AppState: ObservableObject {
     @Published var needsSetup: Bool
     /// Local-only usage totals. Loaded once, written after each dictation.
     @Published var stats = Stats.load()
+    /// Recent transcripts, so one can be copied again. Kept in memory for the
+    /// session; only written to disk when `keepHistory` is on.
+    @Published var history = History()
+    /// Set briefly after a copy, so the board can confirm it happened.
+    @Published var toast: String?
 
     /// The app delegate needs to reach this from outside the SwiftUI scene.
     static let shared = AppState()
@@ -47,6 +52,13 @@ final class AppState: ObservableObject {
     @AppStorage("style") private var styleRaw = DictationStyle.tidy.rawValue
     /// Scribe mode only: let the student say "capital y" to get an uppercase letter.
     @AppStorage("spokenCapitals") var spokenCapitals = true
+    /// Off by default: on a shared or school machine, a record of what somebody
+    /// said should not outlive the session unless they ask for it.
+    @AppStorage("keepHistory") var keepHistory = false {
+        didSet {
+            if keepHistory { history.save() } else { History.erase() }
+        }
+    }
 
     var style: DictationStyle {
         get { DictationStyle(rawValue: styleRaw) ?? .tidy }
@@ -68,6 +80,7 @@ final class AppState: ObservableObject {
             levels.append(level)
             if levels.count > 48 { levels.removeFirst(levels.count - 48) }
         }
+        if keepHistory { history = History.load() }
         hotkey = Hotkey(state: self)
 
         if needsSetup || !seenWelcome {
@@ -185,12 +198,14 @@ final class AppState: ObservableObject {
                 guard token == generation else { return }
 
                 guard !text.isEmpty else {
-                    phase = .idle
-                    pill.hide()
+                    phase = .error("Didn't catch that — nothing was heard")
+                    pill.flash(self, seconds: 2)
                     return
                 }
                 stats.record(spoken: spoken, seconds: seconds)
                 stats.save()
+                history.record(text, style: style)
+                if keepHistory { history.save() }
                 lastTranscript = text
                 if !Paste.insert(text) {
                     phase = .error("Copied to clipboard — grant Accessibility to paste automatically")
@@ -272,6 +287,39 @@ final class AppState: ObservableObject {
         case .recording: "Listening…"
         case .transcribing: "Transcribing…"
         case .error(let message): message
+        }
+    }
+}
+
+
+// MARK: - Transcript board
+
+extension AppState {
+    /// Copies an earlier transcript and confirms it, since a click with no feedback
+    /// leaves you wondering whether it worked.
+    func copyToClipboard(_ transcript: Transcript) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(transcript.text, forType: .string)
+        show(toast: "Copied to your clipboard — paste it wherever you like")
+    }
+
+    func delete(_ transcript: Transcript) {
+        history.remove(transcript.id)
+        if keepHistory { history.save() }
+        show(toast: "Deleted")
+    }
+
+    func clearHistory() {
+        history = History()
+        History.erase()
+        show(toast: "History cleared")
+    }
+
+    private func show(toast message: String) {
+        toast = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            if toast == message { toast = nil }
         }
     }
 }

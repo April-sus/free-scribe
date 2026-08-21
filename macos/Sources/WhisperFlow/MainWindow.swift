@@ -45,13 +45,14 @@ final class MainWindow: NSObject, NSWindowDelegate {
 }
 
 private enum Pane: String, CaseIterable, Identifiable {
-    case dictation, audio, model, stats, general
+    case dictation, history, audio, model, stats, general
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .dictation: "Dictation"
+        case .history: "History"
         case .audio: "Audio"
         case .model: "Model"
         case .stats: "Stats"
@@ -62,6 +63,7 @@ private enum Pane: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .dictation: "text.cursor"
+        case .history: "list.bullet.rectangle"
         case .audio: "waveform"
         case .model: "cpu"
         case .stats: "chart.bar"
@@ -84,6 +86,7 @@ private struct MainView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     switch pane {
                     case .dictation: DictationPane(state: state)
+                    case .history: HistoryPane(state: state)
                     case .audio: AudioPane(state: state)
                     case .model: ModelPane(state: state)
                     case .stats: StatsPane(state: state)
@@ -95,6 +98,103 @@ private struct MainView: View {
             }
             .background(.background)
         }
+        .overlay(alignment: .bottom) {
+            if let toast = state.toast {
+                Text(toast)
+                    .font(.callout)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35)))
+                    .padding(.bottom, 22)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: state.toast)
+    }
+}
+
+/// The transcript board: everything dictated this session, click to copy it again.
+private struct HistoryPane: View {
+    @ObservedObject var state: AppState
+
+    var body: some View {
+        if state.style == .scribe {
+            Banner(
+                icon: "lock.fill",
+                message: "Scribe mode is not recorded. During an exam a list of earlier answers is a record nobody sanctioned.",
+                tint: Theme.warning
+            )
+        }
+
+        if state.history.entries.isEmpty {
+            Card(title: "Nothing yet", footnote: "Transcripts appear here as you dictate. Click one to copy it again.") {
+                Text("Dictate something and it shows up here.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Theme.cardPadding)
+                    .padding(.vertical, 12)
+            }
+        } else {
+            Card(title: "Recent transcripts", footnote: "Click any of them to copy it to your clipboard.") {
+                ForEach(Array(state.history.entries.enumerated()), id: \.element.id) { index, transcript in
+                    TranscriptRow(state: state, transcript: transcript)
+                    if index < state.history.entries.count - 1 { RowDivider() }
+                }
+            }
+        }
+
+        Card(
+            title: "Keeping them",
+            footnote: "Off by default. Nothing is written to disk unless you turn this on, and turning it off deletes the file rather than emptying it."
+        ) {
+            Row(title: "Keep after quitting", detail: "Otherwise the list is cleared when Free Scribe closes.") {
+                Toggle("", isOn: $state.keepHistory)
+                    .toggleStyle(.switch)
+            }
+            if !state.history.entries.isEmpty {
+                RowDivider()
+                Row(title: "Clear the list", detail: "Removes every transcript, and the file if there is one.") {
+                    Button("Clear") { state.clearHistory() }
+                }
+            }
+        }
+    }
+}
+
+private struct TranscriptRow: View {
+    @ObservedObject var state: AppState
+    let transcript: Transcript
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transcript.text)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(transcript.date.formatted(date: .omitted, time: .shortened)) · \(transcript.style)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                state.delete(transcript)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(hovering ? 1 : 0)
+            .help("Delete this transcript")
+        }
+        .padding(.horizontal, Theme.cardPadding)
+        .padding(.vertical, 11)
+        .background(hovering ? Theme.accent.opacity(0.07) : .clear)
+        .contentShape(Rectangle())
+        .onTapGesture { state.copyToClipboard(transcript) }
+        .onHover { hovering = $0 }
     }
 }
 

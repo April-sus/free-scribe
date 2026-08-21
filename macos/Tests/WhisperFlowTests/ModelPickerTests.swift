@@ -199,3 +199,43 @@ final class TranscriberGuardTests: XCTestCase {
         XCTAssertEqual(result.last, 0)
     }
 }
+
+final class HistoryTests: XCTestCase {
+    func testScribeModeIsNeverRecorded() {
+        // An exam must not leave a list of earlier answers behind.
+        var history = History()
+        history.record("hello there", style: .scribe)
+        XCTAssertTrue(history.entries.isEmpty)
+        XCTAssertFalse(History.records(style: .scribe))
+    }
+
+    func testOtherStylesAreRecordedNewestFirst() {
+        var history = History()
+        history.record("first", style: .tidy)
+        history.record("second", style: .verbatim)
+        XCTAssertEqual(history.entries.map(\.text), ["second", "first"])
+    }
+
+    func testEmptyTranscriptsAreIgnored() {
+        var history = History()
+        history.record("   \n ", style: .tidy)
+        XCTAssertTrue(history.entries.isEmpty)
+    }
+
+    func testOldestFallOffTheEnd() {
+        var history = History()
+        for index in 0..<(History.limit + 5) {
+            history.record("entry \(index)", style: .tidy)
+        }
+        XCTAssertEqual(history.entries.count, History.limit)
+        XCTAssertEqual(history.entries.first?.text, "entry \(History.limit + 4)")
+    }
+
+    func testRemoveTakesOnlyThatEntry() {
+        var history = History()
+        history.record("keep", style: .tidy)
+        history.record("drop", style: .tidy)
+        history.remove(history.entries[0].id)
+        XCTAssertEqual(history.entries.map(\.text), ["keep"])
+    }
+}
