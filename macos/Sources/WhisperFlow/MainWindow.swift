@@ -680,17 +680,17 @@ private struct StatsPane: View {
 
             Card(title: "Privacy", footnote: Stats.fileURL.path(percentEncoded: false)) {
                 Row(title: "Stored on this Mac only", detail: "One JSON file. No account, no upload, no identifiers.") {
-                    Button(confirmingReset ? "Really reset?" : "Reset") {
-                        if confirmingReset {
-                            Stats.erase()
-                            state.stats = Stats()
-                            confirmingReset = false
-                        } else {
-                            confirmingReset = true
-                        }
-                    }
-                    .tint(confirmingReset ? .red : nil)
+                    Button("Reset") { confirmingReset = true }
                 }
+            }
+            .alert("Reset your statistics?", isPresented: $confirmingReset) {
+                Button("Reset statistics", role: .destructive) {
+                    Stats.erase()
+                    state.stats = Stats()
+                }
+                Button("Keep them", role: .cancel) {}
+            } message: {
+                Text("Everything counted so far goes back to zero — \(stats.words.formatted()) words across \(stats.dictations.formatted()) dictations, and the whole daily history behind the chart. There is no way to get it back, and nothing is freed by doing it: the file is a few hundred bytes either way. Your transcripts and recordings are not affected. It is your call, but there is rarely a reason.")
             }
         }
     }
