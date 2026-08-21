@@ -5,8 +5,14 @@ import Foundation
 /// Downloaded rather than bundled — it is larger than the app by two orders of
 /// magnitude, and most people never leave their own language.
 public enum TranslationModel {
-    /// A CTranslate2 conversion of facebook/m2m100_418M, MIT like the original.
-    static let repository = "jncraton/m2m100_418M-ct2-int8"
+    /// A CTranslate2 conversion of facebook/m2m100_1.2B, MIT like the original.
+    ///
+    /// The 418M model was tried first and was not good enough: it rendered "open
+    /// source" as "atvērts avots" — an open water spring — and "application" as a
+    /// job application. The larger model reads the sentence around a term and gets
+    /// both right. It costs about 2.5x the time per dictation, which is still under
+    /// a second, and two and a half times the download.
+    static let repository = "jncraton/m2m100_1.2B-ct2-int8"
 
     /// Everything the sidecar needs and nothing it does not: the weights, the
     /// vocabulary that maps tokens to ids, and the tokeniser itself.
@@ -17,11 +23,11 @@ public enum TranslationModel {
         "sentencepiece.bpe.model",
     ]
 
-    public static let approximateSize = "~470 MB"
+    public static let approximateSize = "~1.2 GB"
     public static let languageCount = 84
 
     public static var directory: URL {
-        Transcriber.modelsBase.appending(path: "translation/m2m100-418M-int8")
+        Transcriber.modelsBase.appending(path: "translation/m2m100-1.2B-int8")
     }
 
     public static var isInstalled: Bool {
