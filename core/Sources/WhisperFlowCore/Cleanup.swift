@@ -50,7 +50,7 @@ public enum Cleanup {
     /// True when `polished` can actually run. Apple Intelligence has to be switched on.
     public static var polishAvailable: Bool {
         #if canImport(FoundationModels)
-        guard #available(macOS 26, *) else { return false }
+        guard #available(macOS 26, iOS 26, *) else { return false }
         return SystemLanguageModel.default.isAvailable
         #else
         return false
@@ -59,7 +59,7 @@ public enum Cleanup {
 
     public static var polishUnavailableReason: String? {
         #if canImport(FoundationModels)
-        guard #available(macOS 26, *) else { return "This needs macOS 26 or later." }
+        guard #available(macOS 26, iOS 26, *) else { return "This needs a newer version of the system." }
         switch SystemLanguageModel.default.availability {
         case .available: return nil
         case .unavailable(.appleIntelligenceNotEnabled): return "Turn on Apple Intelligence in System Settings to use this."
@@ -313,7 +313,7 @@ public enum Cleanup {
 
     private static func polished(_ text: String) async -> String {
         #if canImport(FoundationModels)
-        guard #available(macOS 26, *), polishAvailable else { return tidied(text) }
+        guard #available(macOS 26, iOS 26, *), polishAvailable else { return tidied(text) }
 
         do {
             let session = LanguageModelSession(
