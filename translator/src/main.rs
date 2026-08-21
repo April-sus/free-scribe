@@ -12,12 +12,14 @@
 //! that into a Swift package is far more trouble than spawning a child. It also
 //! means a crash in the model cannot take the app down with it.
 //!
-//! The model is M2M-100, which translates directly between any pair of its 100
-//! languages instead of pivoting through English, so Korean to French does not
-//! compound two translations' worth of error.
+//! The model is MADLAD-400, which takes the target language as a token at the
+//! front of the source text and translates directly between any pair of its 400
+//! languages — no pivot through English, so Korean to French does not compound two
+//! translations' worth of error.
 
 use ct2rs::sys::{Config, TranslationOptions, Translator};
-use sentencepiece::SentencePieceProcessor;
+use ct2rs::Tokenizer as _;
+use ct2rs::tokenizers::hf::Tokenizer;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -56,8 +58,10 @@ fn main() {
     };
     let directory = Path::new(&directory);
 
-    let pieces = match SentencePieceProcessor::open(directory.join("sentencepiece.bpe.model")) {
-        Ok(pieces) => pieces,
+    // MADLAD ships a HuggingFace tokenizer, so unlike M2M there is nothing to
+    // hand-roll: the vocabulary and the pieces come from one file.
+    let tokenizer = match Tokenizer::new(directory) {
+        Ok(tokenizer) => tokenizer,
         Err(error) => {
             reply(&Response::failed(format!("could not load the tokenizer: {error}")));
             std::process::exit(1);
@@ -72,8 +76,8 @@ fn main() {
         }
     };
 
-    // Loading takes a few seconds and the caller is waiting on the pipe, so say when
-    // requests will actually be answered.
+    // Loading takes a few seconds and the caller is waiting on the pipe, so say
+    // when requests will actually be answered.
     reply(&Response { ready: true, ..Default::default() });
 
     for line in std::io::stdin().lock().lines() {
@@ -83,67 +87,45 @@ fn main() {
         }
 
         let response = match serde_json::from_str::<Request>(&line) {
-            Ok(request) => translate(&translator, &pieces, request),
+            Ok(request) => translate(&translator, &tokenizer, request),
             Err(error) => Response::failed(format!("could not read the request: {error}")),
         };
         reply(&response);
     }
 }
 
-fn translate(
-    translator: &Translator,
-    pieces: &SentencePieceProcessor,
-    request: Request,
-) -> Response {
+fn translate(translator: &Translator, tokenizer: &Tokenizer, request: Request) -> Response {
     if request.source == request.target || request.text.trim().is_empty() {
         return Response::ok(request.text);
     }
 
-    // M2M expects the source language as the first token and an end marker last:
-    // ["__en__", "▁Hello", "▁there", "</s>"].
-    let encoded = match pieces.encode(&request.text) {
-        Ok(encoded) => encoded,
+    // The target language rides at the front of the source: "<2lv> Hello there".
+    // The source language is not named at all — the model works it out.
+    let prompt = format!("<2{}> {}", request.target, request.text);
+    let tokens = match tokenizer.encode(&prompt) {
+        Ok(tokens) => tokens,
         Err(error) => return Response::failed(format!("could not read that text: {error}")),
     };
 
-    let mut tokens = Vec::with_capacity(encoded.len() + 2);
-    tokens.push(language_token(&request.source));
-    tokens.extend(encoded.into_iter().map(|piece| piece.piece));
-    tokens.push("</s>".to_string());
+    let options = TranslationOptions {
+        beam_size: 4,
+        max_decoding_length: 512,
+        ..Default::default()
+    };
 
-    // The target language is given as a forced prefix on the output.
-    let prefix = vec![vec![language_token(&request.target)]];
-    let options = TranslationOptions { beam_size: 4, ..Default::default() };
-
-    match translator.translate_batch_with_target_prefix(&[tokens], &prefix, &options, None) {
+    match translator.translate_batch(&[tokens], &options, None) {
         Ok(results) => match results.into_iter().next() {
             Some(result) => match result.hypotheses.into_iter().next() {
-                Some(hypothesis) => Response::ok(detokenize(pieces, hypothesis)),
+                Some(hypothesis) => match tokenizer.decode(hypothesis) {
+                    Ok(text) => Response::ok(text.trim().to_string()),
+                    Err(error) => Response::failed(format!("could not read the result: {error}")),
+                },
                 None => Response::failed("the model returned nothing"),
             },
             None => Response::failed("the model returned nothing"),
         },
         Err(error) => Response::failed(format!("translation failed: {error}")),
     }
-}
-
-fn language_token(code: &str) -> String {
-    format!("__{code}__")
-}
-
-/// Drops the language and end markers the model echoes back, then puts the pieces
-/// together into ordinary text.
-fn detokenize(pieces: &SentencePieceProcessor, tokens: Vec<String>) -> String {
-    let words: Vec<String> = tokens
-        .into_iter()
-        .filter(|token| {
-            token != "</s>" && !(token.starts_with("__") && token.ends_with("__"))
-        })
-        .collect();
-
-    pieces
-        .decode_pieces(&words)
-        .unwrap_or_else(|_| words.join("").replace('\u{2581}', " ").trim().to_string())
 }
 
 fn reply(response: &Response) {

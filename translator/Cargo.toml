@@ -6,7 +6,6 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-ct2rs = "0.10"
-sentencepiece = "0.14"
+ct2rs = { version = "0.10", features = ["hub"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

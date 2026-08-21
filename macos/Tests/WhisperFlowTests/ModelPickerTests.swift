@@ -528,7 +528,7 @@ final class SilenceGateTests: XCTestCase {
 final class TranslationCoverageTests: XCTestCase {
     func testTheLocalModelCoversFarMoreThanApple() {
         // Apple offers 22 on this machine; the point of the language pack is the rest.
-        XCTAssertGreaterThan(M2M.languages.count, 60)
+        XCTAssertGreaterThan(M2M.languages.count, 90)
     }
 
     func testEveryLocalLanguageCanActuallyBeDictated() {
@@ -543,8 +543,20 @@ final class TranslationCoverageTests: XCTestCase {
 
     func testTheModelIsDescribedHonestly() {
         XCTAssertEqual(TranslationModel.files.count, 4, "weights, config, vocabulary, tokeniser")
-        XCTAssertTrue(TranslationModel.files.contains("sentencepiece.bpe.model"))
-        XCTAssertTrue(TranslationModel.repository.contains("m2m100"))
+        XCTAssertTrue(TranslationModel.files.contains("tokenizer.json"),
+                      "the sidecar reads the tokeniser from this one file")
+        XCTAssertTrue(TranslationModel.files.contains("model.bin"))
+        XCTAssertTrue(TranslationModel.repository.contains("madlad"))
+    }
+
+    func testAlmostEverythingDictatableCanBeTranslated() {
+        // MADLAD covers 98 of the recogniser's 100. Tagalog and Javanese are the
+        // two it does not, and the count in the interface must not overstate it.
+        let dictatable = Set(Languages.codes)
+        let both = M2M.languages.filter(dictatable.contains)
+        XCTAssertEqual(both.count, TranslationModel.languageCount)
+        XCTAssertFalse(M2M.supports("tl"))
+        XCTAssertFalse(M2M.supports("jw"))
     }
 
     func testCodesAreUniqueAndLowercase() {
