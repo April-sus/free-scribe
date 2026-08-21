@@ -6,8 +6,11 @@ import SwiftUI
 /// It must never take keyboard focus: the transcript is pasted into whatever app
 /// was frontmost, so if this panel activates, the ⌘V lands here instead.
 @MainActor
-final class PillWindow {
-    private static let size = NSSize(width: 260, height: 56)
+final class PillWindow: NSObject, NSWindowDelegate {
+    /// A starting size only. The panel grows to fit whatever it is showing —
+    /// "Listening…" and a two-line error are very different shapes, and a fixed
+    /// box clipped the longer one.
+    private static let size = NSSize(width: 280, height: 56)
     private static let bottomMargin: CGFloat = 120
 
     private var panel: NSPanel?
@@ -62,8 +65,19 @@ final class PillWindow {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.contentView = NSHostingView(rootView: PillView(state: state))
+        // A hosting *controller* keeps preferredContentSize up to date as the
+        // content changes, and the panel follows it. A plain hosting view would
+        // stay at whatever size it was given.
+        panel.contentViewController = NSHostingController(rootView: PillView(state: state))
+        panel.delegate = self
         return panel
+    }
+
+    /// Growing a window moves its right edge, so it has to be re-centred whenever
+    /// the text inside changes length.
+    func windowDidResize(_ notification: Notification) {
+        guard let panel = notification.object as? NSPanel else { return }
+        reposition(panel)
     }
 
     private func reposition(_ panel: NSPanel) {
@@ -71,7 +85,7 @@ final class PillWindow {
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let frame = screen?.visibleFrame else { return }
         panel.setFrameOrigin(NSPoint(
-            x: frame.midX - Self.size.width / 2,
+            x: frame.midX - panel.frame.width / 2,
             y: frame.minY + Self.bottomMargin
         ))
     }
@@ -87,11 +101,14 @@ private struct PillView: View {
             Text(label)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(.primary)
-                .lineLimit(2)
+                // No line limit: an error that cannot be read is no better than
+                // no error. The panel resizes to whatever this needs.
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 12)
+        .frame(minWidth: 240, idealWidth: 280, maxWidth: 420, minHeight: 56)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(ring, lineWidth: 1.5))
     }

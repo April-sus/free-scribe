@@ -336,11 +336,13 @@ private struct TranscriptRow: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(transcript.text)
-                    .lineLimit(4)
+                    .lineLimit(6)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
 
@@ -348,6 +350,11 @@ private struct TranscriptRow: View {
                 Text("\(transcript.date.formatted(date: .abbreviated, time: .shortened)) · \(transcript.style)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                    // The buttons keep their size; this truncates instead of
+                    // shoving them past the edge of the card.
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
 
                 Spacer(minLength: 8)
 
@@ -386,6 +393,7 @@ private struct TranscriptRow: View {
                 .help("Delete this transcript and its recording")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.cardPadding)
         .padding(.vertical, 12)
         .background(background)

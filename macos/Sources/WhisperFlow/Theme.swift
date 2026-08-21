@@ -61,6 +61,7 @@ struct Row<Control: View>: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let detail {
                     Text(detail)
                         .font(.footnote)
@@ -68,8 +69,13 @@ struct Row<Control: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // Takes the slack so the control keeps its natural size, and wraps
+            // rather than pushing the control off the edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Spacer(minLength: 12)
             control
+                .layoutPriority(1)
                 .labelsHidden()
                 .tint(Theme.accent)
         }
