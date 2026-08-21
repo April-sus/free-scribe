@@ -23,3 +23,6 @@ windows/target/
 # Generated at build time from the real dependency graph.
 macos/THIRD-PARTY-NOTICES.txt
 windows/app/THIRD-PARTY-NOTICES.txt
+
+# Rust build output
+translator/target/
