@@ -28,12 +28,12 @@ final class AppState: ObservableObject {
     /// What was said, when the last dictation was translated. Shown in the pill so
     /// the original can be checked against the insertion.
     @Published private(set) var lastOriginal: String?
-    @Published var needsSetup: Bool
+    @Published var needsSetup = true
     /// Local-only usage totals. Loaded once, written after each dictation.
     @Published var stats = Stats.load()
     /// Recent transcripts, so one can be copied again. Kept in memory for the
     /// session; only written to disk when `keepHistory` is on.
-    @Published var history = History()
+    @Published var history = History.load()
     /// Set briefly after a copy, so the board can confirm it happened.
     @Published var toast: String?
 
@@ -86,19 +86,22 @@ final class AppState: ObservableObject {
     }
 
 
+    /// Whether the microphone is open right now. The hotkey asks this rather than
+    /// keeping its own idea of it.
+    var isRecording: Bool { recorder.isRecording }
+
     /// The model this machine should run, honouring a manual override.
     var activeModel: String {
         modelOverride.isEmpty ? ModelPicker.automatic(for: machine) : modelOverride
     }
 
     init() {
-        needsSetup = !Transcriber.isDownloaded(ModelPicker.automatic(for: MachineInfo.probe()))
+        needsSetup = !Transcriber.isDownloaded(ModelPicker.automatic(for: machine))
         recorder.onLevel = { [weak self] level in
             guard let self else { return }
             levels.append(level)
             if levels.count > 48 { levels.removeFirst(levels.count - 48) }
         }
-        history = History.load()
         Sounds.enabled = soundsEnabled
         hotkey = Hotkey(state: self)
 
@@ -107,6 +110,42 @@ final class AppState: ObservableObject {
         if !needsSetup {
             Task { await prepareModel() }
         }
+
+        // Waking is where this app used to stop working until it was restarted: the
+        // audio engine is left holding a device that no longer exists, and anything
+        // that was mid-dictation when the lid closed is still nominally running.
+        // Both kinds of waking. Closing the lid on a Mac with an external display
+        // often sleeps only the screens, and the audio devices still move.
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.recoverFromSleep() }
+            }
+        }
+    }
+
+    /// Puts everything back the way a fresh launch would have it.
+    private func recoverFromSleep() {
+        recorder.reset()
+        levels.removeAll()
+
+        // A recording interrupted by the lid closing is gone with its device, and would
+        // otherwise leave `phase` stuck. A transcription or download in flight is not:
+        // it needs the model or the network, not the microphone, and unlocking the
+        // screen used to throw it away.
+        if phase == .recording {
+            cancelTranscription(message: nil)
+        }
+
+        // A shortcut that was held when the lid closed never saw its key-up, and
+        // would treat the next press as the end of that hold.
+        hotkey?.reset()
+        // The panel was built for the screens as they were. Rebuilding it on next
+        // use is cheaper than reasoning about which of them survived.
+        pill.discard()
     }
 
     // MARK: Model
@@ -199,6 +238,16 @@ final class AppState: ObservableObject {
         guard recorder.isRecording else { return }
         let samples = recorder.stop()
         guard !samples.isEmpty else {
+            // Nothing arrived at all, for a whole second or more: the microphone was
+            // dead, not the user quiet. The recorder has already rebuilt itself, so
+            // this is the one press lost — and it should say why, rather than looking
+            // like the shortcut did nothing.
+            if recorder.lastRecordingWasDead {
+                phase = .error(RecorderError.deadDevice.errorDescription ?? "The microphone produced nothing")
+                Sounds.play(.failed)
+                pill.flash(self, seconds: 3)
+                return
+            }
             phase = .idle
             pill.hide()
             return
@@ -283,6 +332,11 @@ final class AppState: ObservableObject {
             } catch {
                 guard token == generation else { return }
                 await transcriber.clearState()
+                // A CoreML context can come back from a sleep unusable, in which case
+                // every later dictation fails the same way. Reloading costs a moment
+                // once; not reloading costs the rest of the session.
+                await transcriber.unload()
+                Task { await prepareModel() }
                 if seconds >= Self.worthKeepingSeconds {
                     keepFailure(error.localizedDescription, samples: samples)
                 }

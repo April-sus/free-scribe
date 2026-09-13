@@ -8,7 +8,6 @@ enum Theme {
     static let warning = Color(red: 0.96, green: 0.62, blue: 0.26)
 
     static let corner: CGFloat = 14
-    static let rowSpacing: CGFloat = 14
     static let cardPadding: CGFloat = 16
 
     static var separator: Color { .primary.opacity(0.08) }

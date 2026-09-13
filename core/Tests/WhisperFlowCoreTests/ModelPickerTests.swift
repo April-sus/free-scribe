@@ -20,6 +20,16 @@ final class ModelPickerTests: XCTestCase {
         XCTAssertEqual(ModelPicker.fallback(for: mac(ram: 48)), "openai_whisper-large-v3-v20240930_turbo")
     }
 
+    func testActionButtonFromModelIdentifier() {
+        XCTAssertFalse(MachineInfo.hasActionButton(model: "iPhone15,4"))  // iPhone 15
+        XCTAssertTrue(MachineInfo.hasActionButton(model: "iPhone16,1"))   // 15 Pro
+        XCTAssertTrue(MachineInfo.hasActionButton(model: "iPhone17,5"))   // 16e
+        XCTAssertTrue(MachineInfo.hasActionButton(model: "iPhone18,3"))
+        XCTAssertFalse(MachineInfo.hasActionButton(model: "iPad16,3"))
+        XCTAssertFalse(MachineInfo.hasActionButton(model: "arm64"))
+        XCTAssertFalse(MachineInfo.hasActionButton(model: ""))
+    }
+
     func testIntelIsCappedRegardlessOfMemory() {
         XCTAssertEqual(ModelPicker.fallback(for: mac(ram: 64, appleSilicon: false)), "openai_whisper-base.en")
     }
@@ -651,5 +661,33 @@ final class HardwareProbeTests: XCTestCase {
         let info = MachineInfo.probe()
         XCTAssertFalse(info.chip.isEmpty)
         XCTAssertFalse(info.summary.isEmpty)
+    }
+}
+
+extension ModelPickerTests {
+    /// WhisperKit recommends Compact for phones that can comfortably run better, and
+    /// the iOS build ships Light inside the app. Choosing the weaker of the two costs
+    /// accuracy for nothing — Compact is the model that mangles rare words.
+    func testNeverChoosesWeakerThanWhatIsBundled() {
+        XCTAssertEqual(
+            ModelPicker.atLeast(bundled: "openai_whisper-base.en", "openai_whisper-tiny.en"),
+            "openai_whisper-base.en"
+        )
+    }
+
+    /// A stronger choice than the bundled one stands: it was chosen for a reason.
+    func testKeepsAStrongerChoice() {
+        XCTAssertEqual(
+            ModelPicker.atLeast(bundled: "openai_whisper-base.en", "openai_whisper-small.en"),
+            "openai_whisper-small.en"
+        )
+    }
+
+    /// Nothing bundled, nothing to prefer — the macOS and Windows case.
+    func testWithoutABundledModelTheChoiceIsUntouched() {
+        XCTAssertEqual(
+            ModelPicker.atLeast(bundled: nil, "openai_whisper-tiny.en"),
+            "openai_whisper-tiny.en"
+        )
     }
 }

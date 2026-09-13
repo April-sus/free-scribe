@@ -1,6 +1,8 @@
-// NSSound is AppKit; iOS cues would come from AudioServices instead.
 #if os(macOS)
 import AppKit
+#else
+import AudioToolbox
+#endif
 import Foundation
 
 /// Short cues for the things that happen while you are looking at another app.
@@ -34,13 +36,30 @@ public enum Sounds {
             default: 0.35
             }
         }
+
+        #if !os(macOS)
+        var identifier: SystemSoundID {
+            switch self {
+            case .started: 1113   // begin recording
+            case .inserted: 1114  // end recording
+            case .failed: 1073    // error tone
+            case .copied: 1104    // key press tick
+            }
+        }
+        #endif
     }
 
     public static func play(_ cue: Cue) {
-        guard enabled, let sound = NSSound(named: cue.name) else { return }
+        guard enabled else { return }
+        #if os(macOS)
+        guard let sound = NSSound(named: cue.name) else { return }
         sound.volume = cue.volume
         sound.play()
+        #else
+        // iOS has no named system sounds and no volume control over them, so these
+        // are the stock UI cues by id. Their character matches the Mac's: a tick to
+        // start, a pop on success, an error tone on failure.
+        AudioServicesPlaySystemSound(cue.identifier)
+        #endif
     }
 }
-
-#endif

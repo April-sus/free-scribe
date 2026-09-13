@@ -30,3 +30,7 @@ translator/target/
 # Xcode
 ios/FreeScribe.xcodeproj/
 ios/**/xcuserdata/
+ios/build/
+
+# Fetched by ios/fetch-model.sh — ~145 MB, deliberately not in the history.
+ios/Resources/Model/

@@ -6,7 +6,10 @@ import Foundation
 // icon: light background gradient, three copies of the mark at 0.75 scale.
 let assetPath = "/Users/april/Documents/Free scribe/Icon.icon/Assets/Asset.png"
 let outPath = CommandLine.arguments[1]
-let dark = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "dark"
+let dark = CommandLine.arguments.contains("dark")
+/// iOS masks the icon itself and refuses one with transparency, so the phone wants
+/// the same artwork full-bleed and opaque rather than pre-rounded.
+let square = CommandLine.arguments.contains("square")
 
 let side: CGFloat = 1024
 // macOS 26 icons are full-bleed: the squircle fills the canvas, which is the grid
@@ -18,7 +21,7 @@ let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
 guard let ctx = CGContext(
     data: nil, width: Int(side), height: Int(side), bitsPerComponent: 8,
     bytesPerRow: 0, space: colorSpace,
-    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    bitmapInfo: (square ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue
 ) else { fatalError("context") }
 
 func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGColor {
@@ -26,9 +29,11 @@ func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGColor {
 }
 
 // Squircle-ish rounded rect, then everything else clips to it.
-let shape = CGPath(roundedRect: content, cornerWidth: radius, cornerHeight: radius, transform: nil)
-ctx.addPath(shape)
-ctx.clip()
+if !square {
+    let shape = CGPath(roundedRect: content, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    ctx.addPath(shape)
+    ctx.clip()
+}
 
 // Background gradient. Light and dark specs both come from icon.json.
 let (top, bottom, startY, stopY): (CGColor, CGColor, CGFloat, CGFloat) = dark
