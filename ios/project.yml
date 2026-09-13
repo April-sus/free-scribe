@@ -9,7 +9,9 @@ settings:
 options:
   bundleIdPrefix: local.freescribe
   deploymentTarget:
-    iOS: "16.0"
+    # 18 for the Translation framework's session API. It costs no devices: iOS 18
+    # runs on every iPhone iOS 17 did, back to the XS.
+    iOS: "18.0"
   createIntermediateGroups: true
 
 packages:
@@ -20,7 +22,18 @@ targets:
   FreeScribe:
     type: application
     platform: iOS
-    sources: [App, memory-probe]
+    sources:
+      - App
+      # ~145 MB fetched by fetch-model.sh rather than committed. The app ships with a
+      # model so dictation works the moment it is installed.
+      - path: Resources/Model
+        type: folder
+    settings:
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      # iPhone only. On iPad the store demands every orientation or full screen, and
+      # the Action button and a phone-sized keyboard are the point of it anyway. Set
+      # per target: XcodeGen gives every iOS target "1,2", which beats the project's.
+      TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - package: WhisperFlowCore
       - target: FreeScribeKeyboard
@@ -34,14 +47,24 @@ targets:
         CFBundleDisplayName: Free Scribe
         UILaunchScreen: {}
         NSMicrophoneUsageDescription: Free Scribe transcribes your speech on this device. Audio is never sent anywhere.
+        # The app keeps the microphone open while you dictate from the keyboard,
+        # which means it has to keep running once you leave it.
+        UIBackgroundModes: [audio]
+        # So the keyboard can wake the app when iOS has reclaimed it.
+        CFBundleURLTypes:
+          - CFBundleURLName: local.freescribe
+            CFBundleURLSchemes: [freescribe]
+        # HTTPS to download models is exempt; nothing else is encrypted by the app.
+        ITSAppUsesNonExemptEncryption: false
 
   FreeScribeKeyboard:
     type: app-extension
     platform: iOS
-    sources: [Keyboard, memory-probe]
+    sources: [Keyboard]
     settings:
       # An extension's identifier has to sit underneath its app's, not beside it.
       PRODUCT_BUNDLE_IDENTIFIER: local.freescribe.FreeScribe.Keyboard
+      TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - package: WhisperFlowCore
     entitlements:

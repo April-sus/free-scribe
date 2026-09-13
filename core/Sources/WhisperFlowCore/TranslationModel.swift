@@ -41,7 +41,7 @@ public enum TranslationModel {
         files.reduce(0) { total, name in
             let path = directory.appending(path: name).path
             let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
-            return total + (size ?? 0)
+            return total + size
         }
     }
 

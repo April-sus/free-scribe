@@ -73,7 +73,13 @@ public enum Cleanup {
     }
 
     public static func apply(_ text: String, style: DictationStyle, spokenCapitals: Bool = true) async -> String {
-        switch style {
+        // Applies to every style, scribe included, and deliberately so. A word the
+        // student said and the recogniser mangled is already not word-for-word;
+        // putting it back is fidelity, not correction. Only words the user typed into
+        // the vocabulary are ever matched, so nothing can appear that nobody said.
+        let text = Vocabulary.load().corrected(text)
+
+        return switch style {
         case .verbatim: text
         // Never routed through the language model: under the scribe rules, anything
         // that could suggest a word or improve the text is a breach.

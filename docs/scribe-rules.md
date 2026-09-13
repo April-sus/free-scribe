@@ -19,7 +19,16 @@ requirements with your authority before using this in an exam.
 
 Apostrophes and hyphens **inside** a word are kept — `it's`, `well-known`. Strictly
 they are punctuation, but the student is marked on spelling and mangling contractions
-would corrupt that. This is the one deliberate liberty taken with the rule.
+would corrupt that.
+
+The **vocabulary** is the second deliberate liberty. Words added to it are given to
+the recogniser beforehand, and anything that still comes back sounding like one of
+them is replaced by it — in scribe mode as well as everywhere else. The reasoning:
+when a student says "onomatopoeia" and the recogniser writes "on O'Matopir", word
+for word has already been broken, and putting the word back restores it rather than
+improving on it. Only words a person typed into the list are ever matched, so the
+software cannot introduce a word nobody said. Punctuation is untouched by this, and
+scribe mode still never reaches a language model.
 
 ## Spoken commands
 

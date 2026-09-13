@@ -25,10 +25,46 @@ public final class Recorder {
     private final class SampleBuffer: @unchecked Sendable {
         private let lock = NSLock()
         private var samples: [Float] = []
+        private var accepting = true
+        private var skipUntil: Date?
+
+        /// Throws away the first moments after the microphone opens.
+        func skip(until: Date) {
+            lock.lock()
+            skipUntil = until
+            lock.unlock()
+        }
+        /// Buffers delivered since the engine started, kept or not. Zero after a
+        /// second of recording means the device is not producing audio at all.
+        private var delivered = 0
+
+        var deliveredCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return delivered
+        }
+
+        func resetDelivered() {
+            lock.lock()
+            delivered = 0
+            lock.unlock()
+        }
+
+        func setAccepting(_ accepting: Bool) {
+            lock.lock()
+            self.accepting = accepting
+            lock.unlock()
+        }
 
         func append(_ new: [Float]) {
             lock.lock()
-            samples.append(contentsOf: new)
+            delivered += 1
+            if let skipUntil, Date() < skipUntil {
+                // Still inside the warm-up: counted as delivered, but not kept.
+                lock.unlock()
+                return
+            }
+            if accepting { samples.append(contentsOf: new) }
             lock.unlock()
         }
 
@@ -43,18 +79,63 @@ public final class Recorder {
         }
     }
 
-    private let engine = AVAudioEngine()
+    /// Rebuilt rather than reused when the audio devices change underneath it.
+    /// After the machine sleeps, the device this was built against is gone: the
+    /// engine either refuses to start or delivers silence, and silence is discarded
+    /// as nothing said — so dictation looks broken until the app is restarted.
+    private var engine = AVAudioEngine()
+    /// Set when the system says the devices moved. The engine is replaced at the
+    /// start of the next dictation, which is the only safe moment to do it.
+    private var engineIsStale = false
+    private var configurationObserver: NSObjectProtocol?
     private var converter: AVAudioConverter?
     private let buffer = SampleBuffer()
 
     public private(set) var isRecording = false
+    private var startedAt: Date?
+    /// True after a stop that found the engine delivered nothing for the whole
+    /// recording: the device was dead, not the room quiet. The engine has already
+    /// been rebuilt by then, so the next attempt works — this is for telling the
+    /// user why this one did not.
+    public private(set) var lastRecordingWasDead = false
+    /// What the device handed the converter on the last start, for the log.
+    public private(set) var lastInputFormat = ""
     /// 0...1 loudness for the waveform, published per audio buffer.
     public var onLevel: (@MainActor (Float) -> Void)?
     /// CoreAudio UID of the microphone to record from. Empty or unknown means
     /// whatever macOS currently calls the default input.
     public var inputDeviceUID = ""
 
-    public init() {}
+    public init() {
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.engineIsStale = true }
+        }
+    }
+
+    deinit {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+    }
+
+    /// Throws away the engine and builds a fresh one.
+    ///
+    /// Safe at any time: a dictation in progress is abandoned rather than corrupted,
+    /// which is the right trade when the device it was recording from has gone.
+    public func reset() {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        converter = nil
+        isRecording = false
+        buffer.setAccepting(true)
+        buffer.drain()
+        engine = AVAudioEngine()
+        engineIsStale = false
+    }
 
     /// Microphones the system can currently see, for the Settings picker.
     ///
@@ -82,23 +163,67 @@ public final class Recorder {
 
     public func start() throws {
         guard !isRecording else { return }
+        // The devices moved while we were not using them — after a sleep, or a
+        // microphone being unplugged. Start from a fresh engine.
+        if engineIsStale { reset() }
+        buffer.setAccepting(true)
         buffer.drain()
 
         // A previous attempt that threw after installing the tap would leave it in
         // place, and installing a second tap on the same bus traps. Cheap to repeat.
         engine.inputNode.removeTap(onBus: 0)
 
+        #if os(iOS)
+        // Without this the engine throws 'what' (2003329396), which reads as a
+        // hardware fault and is really a missing permission. A keyboard extension
+        // cannot raise the prompt itself, so the app has to have asked first.
+        guard Self.microphoneAuthorized else { throw RecorderError.microphoneDenied }
+
+        // Nothing reaches the engine until the session is in a recording category.
+        // In a keyboard extension this only succeeds with Allow Full Access on.
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers]
+            )
+            try session.setActive(true)
+
+            // Bluetooth stays allowed, but the phone's own microphone is preferred
+            // over it. Otherwise a paired headset — in a bag, on a desk — becomes the
+            // input, and every dictation comes back as nothing heard.
+            if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                try? session.setPreferredInput(builtIn)
+            }
+        } catch {
+            // Separated from the engine's own failure: the two read identically to a
+            // user and need completely different fixes.
+            throw RecorderError.sessionUnavailable(error)
+        }
+        #endif
+
         let input = engine.inputNode
         #if os(macOS)
         // Must happen before the format is read: changing the device changes it.
         // A device that has since been unplugged just leaves us on the default.
-        Self.selectDevice(uid: inputDeviceUID, on: input)
+        //
+        // Left to the system default, a connected Bluetooth headset with a
+        // microphone often becomes it — and opening its mic forces the Bluetooth
+        // link into the low-quality voice profile, degrading whatever else is
+        // playing through it too. Prefer the built-in mic unless the user picked
+        // something else in Settings.
+        let uid = inputDeviceUID.isEmpty
+            ? AVCaptureDevice.default(.microphone, for: .audio, position: .unspecified)?.uniqueID ?? ""
+            : inputDeviceUID
+        Self.selectDevice(uid: uid, on: input)
         #endif
 
         let inputFormat = input.inputFormat(forBus: 0)
         guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
             throw RecorderError.noInputDevice
         }
+        lastInputFormat = "\(Int(inputFormat.sampleRate)) Hz, \(inputFormat.channelCount) ch, \(inputFormat.commonFormat.rawValue), interleaved \(inputFormat.isInterleaved)"
         guard let target = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: Self.sampleRate,
@@ -129,9 +254,57 @@ public final class Recorder {
         } catch {
             input.removeTap(onBus: 0)
             self.converter = nil
-            throw error
+            // An engine that will not start is usually one holding a device that
+            // has gone — after a sleep, most often. A fresh one generally will.
+            guard !retrying else { throw error }
+            reset()
+            retrying = true
+            defer { retrying = false }
+            try start()
+            return
         }
+        buffer.resetDelivered()
+        buffer.skip(until: Date().addingTimeInterval(Self.warmUpSeconds))
+        startedAt = Date()
+        lastRecordingWasDead = false
         isRecording = true
+    }
+
+    private var retrying = false
+
+    /// Keeps the engine running but stops keeping what it hears.
+    ///
+    /// This is why the app holds the microphone open the whole time it is on duty:
+    /// iOS refuses to *start* audio input from the background — `kAUStartIO` fails
+    /// with 'what' (2003329396) — so a stream that will be needed later has to be
+    /// opened in the foreground and left running. Ignoring it is the only "off"
+    /// available.
+    public func pause() {
+        buffer.setAccepting(false)
+        buffer.drain()
+    }
+
+    /// Begins keeping audio again, discarding whatever silence preceded it.
+    public func beginSegment() {
+        buffer.drain()
+        buffer.skip(until: Date().addingTimeInterval(Self.warmUpSeconds))
+        buffer.setAccepting(true)
+    }
+
+    /// The first fraction of a recording is thrown away.
+    ///
+    /// The microphone opens while the "started" cue is still coming out of the
+    /// speaker, and the recogniser hears it: a short dictation came back as
+    /// "(beeping)" rather than words, and a bracketed non-speech tag is stripped to
+    /// nothing — which reached the user as "nothing could be made out".
+    static let warmUpSeconds: TimeInterval = 0.25
+
+    /// The segment just spoken. Empty if it was too short to be speech.
+    public func endSegment() -> [Float] {
+        buffer.setAccepting(false)
+        let captured = buffer.drain()
+        guard Double(captured.count) / Self.sampleRate >= Self.minimumSeconds else { return [] }
+        return captured
     }
 
     /// Stops capture and returns the recording. Empty if it was too short to be speech.
@@ -139,9 +312,26 @@ public final class Recorder {
     public func stop() -> [Float] {
         guard isRecording else { return [] }
         isRecording = false
+
+        // Recorded for a second or more and never got a single buffer: the engine
+        // started but its device is dead. Rebuild now, so the next press works,
+        // and say so, so this one is not mistaken for the user being silent.
+        let held = startedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if held >= 1, buffer.deliveredCount == 0 {
+            lastRecordingWasDead = true
+            reset()
+            return []
+        }
+
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         converter = nil
+
+        #if os(iOS)
+        // Handing the route back matters: whatever the user was playing before they
+        // dictated should carry on afterwards.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
 
         let captured = buffer.drain()
         guard Double(captured.count) / Self.sampleRate >= Self.minimumSeconds else { return [] }
@@ -230,12 +420,17 @@ public enum RecorderError: LocalizedError {
     case noInputDevice
     case unsupportedFormat
     case microphoneDenied
+    case sessionUnavailable(Error)
+    case deadDevice
 
     public var errorDescription: String? {
         switch self {
         case .noInputDevice: "No microphone was found."
         case .unsupportedFormat: "This microphone's audio format is not supported."
-        case .microphoneDenied: "Microphone access was denied in System Settings."
+        case .microphoneDenied: "Free Scribe has no microphone permission yet. Open the app and allow it."
+        case .deadDevice: "The microphone produced nothing — it has been reset, try again."
+        case .sessionUnavailable(let underlying):
+            "The audio session would not start: \((underlying as NSError).code)"
         }
     }
 }

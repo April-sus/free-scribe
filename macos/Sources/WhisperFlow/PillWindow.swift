@@ -29,6 +29,14 @@ final class PillWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Throws the panel away so the next `show` builds a fresh one — for after a
+    /// sleep, when the screens it was placed on may no longer be the screens.
+    func discard() {
+        hideTask?.cancel()
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
     func hide() {
         hideTask?.cancel()
         guard let panel else { return }

@@ -5,6 +5,22 @@ import WhisperFlowCore
 /// feedback — it just looks dead. Catch the reopen and show the window instead.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Launched directly (build.sh, Xcode, a second double-click of the .app while
+    /// one is already running) rather than reopened through the Dock, so LaunchServices'
+    /// usual single-instance activation never kicks in — an LSUIElement app has no Dock
+    /// icon for that to attach to. Two copies would fight over the hotkey and the mic.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let bundleID = Bundle.main.bundleIdentifier
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        guard let other = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleID ?? "")
+            .first(where: { $0.processIdentifier != myPID })
+        else { return }
+
+        other.activate()
+        NSApp.terminate(nil)
+    }
+
     /// Opening the app opens the window — one click, not two.
     ///
     /// The exception is the launch macOS performs at login, which the user did not

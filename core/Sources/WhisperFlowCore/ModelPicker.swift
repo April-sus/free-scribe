@@ -30,6 +30,26 @@ public struct MachineInfo: Sendable {
         )
     }
 
+    /// Whether this iPhone has an Action button. iOS has no API that says, so it is
+    /// read off the model identifier. The simulator reports the Mac's, so there it
+    /// comes from the phone being simulated instead.
+    public static var hasActionButton: Bool {
+        #if targetEnvironment(simulator)
+        hasActionButton(model: ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "")
+        #else
+        hasActionButton(model: sysctlString("hw.machine") ?? "")
+        #endif
+    }
+
+    /// "iPhone16,1" and "16,2" are the 15 Pro and Pro Max, the first with the button;
+    /// every iPhone since has one. The plain 15 is "iPhone15,4".
+    static func hasActionButton(model: String) -> Bool {
+        guard model.hasPrefix("iPhone"),
+              let major = Int(model.dropFirst("iPhone".count).prefix { $0 != "," })
+        else { return false }
+        return major >= 16
+    }
+
     /// Reads a sysctl string, or nil when the key does not exist on this platform.
     ///
     /// The size has to be checked: a missing key leaves it at zero, and handing an
@@ -143,6 +163,28 @@ public enum ModelPicker {
     /// recommendation when it knows this machine, our hardware tier otherwise.
     public static func automatic(for machine: MachineInfo) -> String {
         let recommended = WhisperKit.recommendedModels().default
-        return recommended == unknownDeviceDefault ? fallback(for: machine) : recommended
+        let chosen = recommended == unknownDeviceDefault ? fallback(for: machine) : recommended
+        return atLeast(bundled: bundledModel, chosen)
+    }
+
+    /// A model shipped inside the app, if there is one. Set by the platform build;
+    /// iOS carries Light · English, the others carry nothing.
+    public static var bundledModel: String? {
+        Transcriber.bundled(Transcriber.bundledModel) != nil ? Transcriber.bundledModel : nil
+    }
+
+    /// Never choose something weaker than the model already installed.
+    ///
+    /// WhisperKit's own device recommendation is conservative — it returns Compact
+    /// for an iPhone 16 Pro, which is the model that spells "onomatopoeia" as
+    /// "on O'Matopir". When a better one is sitting in the app bundle, needing no
+    /// download and no space, using the worse one helps nobody.
+    static func atLeast(bundled: String?, _ chosen: String) -> String {
+        guard let bundled,
+              let order = catalog.map(\.id) as [String]?,
+              let bundledRank = order.firstIndex(of: bundled),
+              let chosenRank = order.firstIndex(of: chosen)
+        else { return chosen }
+        return bundledRank > chosenRank ? bundled : chosen
     }
 }
