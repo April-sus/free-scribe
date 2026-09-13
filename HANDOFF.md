@@ -94,6 +94,25 @@ is a breach of the rules. Hard-wired, with tests.
   after `sessionMinutes`), and on iOS 26 the intent declares
   `supportedModes = [.background, .foreground(.dynamic)]` and calls
   `continueInForeground(alwaysConfirm: false)` instead of throwing.
+- **Touching the engine's input node flips AirPods into call mode.** Creating
+  `engine.inputNode` binds it to the system's *default* microphone before a chosen
+  one can be set on it — with AirPods as the default and a USB mic chosen, the first
+  dictation after every launch, wake or reconnection dropped the AirPods to headset
+  quality. A non-default chosen mic is now captured through `AVCaptureSession`, which
+  opens only that device; the input node is touched only when a tap exists. iOS had
+  the same shape: `.allowBluetooth` offered the AirPods' mic and activation took it;
+  the session now uses `.allowBluetoothA2DP`.
+- **Taking AirPods out killed dictation until the app was reopened.** A route change
+  stops an `AVAudioEngine` and it does not restart. The engine held open for the
+  keyboard went silent, and `start()` — the only place staleness was handled — is
+  never called while armed. `Recorder.devicesChanged` now rebuilds and restarts a
+  running engine immediately, keeping audio already captured; if iOS refuses from the
+  background, `onInputLost` hands the audio over and the app stops listening.
+- **Two copies of the Mac app could run.** The launch-time guard ran once, in the
+  new copy only, so a simultaneous launch saw nothing and both stayed. Every copy
+  now settles at launch, two seconds later, and on any new copy appearing, using one
+  shared ranking (newest build, then earliest launch, then lowest pid). A stale
+  build from Aug 14 sits at the repo root with the same bundle id.
 - **The Mac shortcut sometimes needed two presses.** `Hotkey` kept a `latched` flag
   of its own and set it on every tap, even when the recording had failed to start.
   The next press then took the "stop" branch, found nothing recording, and did

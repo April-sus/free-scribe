@@ -56,6 +56,20 @@ public final class Recorder {
             lock.unlock()
         }
 
+        var isAccepting: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return accepting
+        }
+
+        /// Puts back audio taken out before a restart, ahead of anything since.
+        func restore(_ earlier: [Float]) {
+            guard !earlier.isEmpty else { return }
+            lock.lock()
+            samples.insert(contentsOf: earlier, at: 0)
+            lock.unlock()
+        }
+
         func append(_ new: [Float]) {
             lock.lock()
             delivered += 1
@@ -90,6 +104,23 @@ public final class Recorder {
     private var configurationObserver: NSObjectProtocol?
     private var converter: AVAudioConverter?
     private let buffer = SampleBuffer()
+    /// Whether the engine's input node carries a tap. Only then is it touched to
+    /// remove one: creating that node is what binds the system's default microphone.
+    private var tapInstalled = false
+    #if os(macOS)
+    /// Recording from a microphone other than the system default goes through a
+    /// capture session instead of the engine.
+    ///
+    /// An engine binds its input node to the default microphone the moment the node
+    /// exists — before a different device can be set on it. When that default is a
+    /// pair of AirPods, touching it flips them from music quality into their
+    /// call-quality headset mode, however briefly: the first dictation after every
+    /// launch, wake, or AirPods reconnection did exactly that, with a USB microphone
+    /// chosen the whole time. A capture session opens only the device it is given.
+    private var capture: AVCaptureSession?
+    private var captureSink: CaptureSink?
+    private let captureQueue = DispatchQueue(label: "free-scribe.capture")
+    #endif
 
     public private(set) var isRecording = false
     private var startedAt: Date?
@@ -105,6 +136,9 @@ public final class Recorder {
     /// CoreAudio UID of the microphone to record from. Empty or unknown means
     /// whatever macOS currently calls the default input.
     public var inputDeviceUID = ""
+    /// Called when a route change took the microphone and it could not be reopened,
+    /// with whatever had been recorded by then.
+    public var onInputLost: (@MainActor ([Float]) -> Void)?
 
     public init() {
         configurationObserver = NotificationCenter.default.addObserver(
@@ -112,7 +146,45 @@ public final class Recorder {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.engineIsStale = true }
+            Task { @MainActor in self?.devicesChanged() }
+        }
+    }
+
+    /// The system rebuilt the audio route — AirPods taken out, a headset plugged in,
+    /// a call ending. An engine stops itself when that happens and does not start
+    /// again. A stream held open for the keyboard went silent, and every dictation
+    /// after the AirPods came out was "nothing heard" until the app was reopened.
+    ///
+    /// So a running engine is rebuilt and restarted at once, on whatever microphone
+    /// the route now offers, with what had been said so far kept. If it cannot be
+    /// reopened — iOS will not always let a background app open a microphone — the
+    /// audio so far goes to `onInputLost`, so it is not thrown away, and the app can
+    /// stop claiming to be ready.
+    private func devicesChanged() {
+        guard isRecording, tapInstalled else {
+            engineIsStale = true
+            return
+        }
+        let wasKeeping = buffer.isAccepting
+        let kept = buffer.drain()
+
+        stopCapturing()
+        isRecording = false
+        engine = AVAudioEngine()
+        engineIsStale = false
+
+        do {
+            try start()
+            if wasKeeping {
+                buffer.restore(kept)
+            } else {
+                pause()
+            }
+            Diagnostics.log("recorder: audio route changed, reopened the microphone (\(lastInputFormat))")
+        } catch {
+            engineIsStale = true
+            Diagnostics.log("recorder: audio route changed and the microphone could not be reopened — \(error)")
+            onInputLost?(wasKeeping ? kept : [])
         }
     }
 
@@ -127,9 +199,7 @@ public final class Recorder {
     /// Safe at any time: a dictation in progress is abandoned rather than corrupted,
     /// which is the right trade when the device it was recording from has gone.
     public func reset() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        converter = nil
+        stopCapturing()
         isRecording = false
         buffer.setAccepting(true)
         buffer.drain()
@@ -169,9 +239,21 @@ public final class Recorder {
         buffer.setAccepting(true)
         buffer.drain()
 
+        #if os(macOS)
+        // A chosen microphone that is not the system default is opened directly,
+        // before anything touches the engine. See `capture`.
+        if let device = Self.directDevice(uid: inputDeviceUID) {
+            try startCapture(from: device)
+            return
+        }
+        #endif
+
         // A previous attempt that threw after installing the tap would leave it in
-        // place, and installing a second tap on the same bus traps. Cheap to repeat.
-        engine.inputNode.removeTap(onBus: 0)
+        // place, and installing a second tap on the same bus traps.
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
 
         #if os(iOS)
         // Without this the engine throws 'what' (2003329396), which reads as a
@@ -183,10 +265,15 @@ public final class Recorder {
         // In a keyboard extension this only succeeds with Allow Full Access on.
         let session = AVAudioSession.sharedInstance()
         do {
+            // A2DP, not `.allowBluetooth`. The latter makes a headset's microphone
+            // eligible, and activating with AirPods connected routed input to them —
+            // flipping them into call-quality mode for the first dictation, until the
+            // built-in microphone was preferred afterwards. A2DP keeps them on music
+            // quality for playback and never offers their microphone at all.
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers]
+                options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers]
             )
             try session.setActive(true)
 
@@ -247,12 +334,14 @@ public final class Recorder {
                 self?.onLevel?(level)
             }
         }
+        tapInstalled = true
 
         engine.prepare()
         do {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
+            tapInstalled = false
             self.converter = nil
             // An engine that will not start is usually one holding a device that
             // has gone — after a sleep, most often. A fresh one generally will.
@@ -271,6 +360,104 @@ public final class Recorder {
     }
 
     private var retrying = false
+
+    /// Stops whichever is running. The engine's input node is touched only if a tap
+    /// was ever put on it.
+    private func stopCapturing() {
+        #if os(macOS)
+        capture?.stopRunning()
+        capture = nil
+        captureSink = nil
+        #endif
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        engine.stop()
+        converter = nil
+    }
+
+    #if os(macOS)
+    /// The microphone to open directly, when one other than the system default is
+    /// chosen. Nil means the engine, which records from the default.
+    private static func directDevice(uid: String) -> AVCaptureDevice? {
+        guard !uid.isEmpty,
+              uid != AVCaptureDevice.default(for: .audio)?.uniqueID
+        else { return nil }
+        return AVCaptureDevice(uniqueID: uid)
+    }
+
+    private func startCapture(from device: AVCaptureDevice) throws {
+        let session = AVCaptureSession()
+        let input = try AVCaptureDeviceInput(device: device)
+        let output = AVCaptureAudioDataOutput()
+        // Converted by the output itself into what Whisper wants: 16 kHz mono float.
+        output.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: Self.sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        guard session.canAddInput(input), session.canAddOutput(output) else {
+            throw RecorderError.unsupportedFormat
+        }
+        session.addInput(input)
+        session.addOutput(output)
+
+        let sink = CaptureSink(buffer: buffer) { [weak self] level in
+            Task { @MainActor in self?.onLevel?(level) }
+        }
+        output.setSampleBufferDelegate(sink, queue: captureQueue)
+
+        buffer.resetDelivered()
+        buffer.skip(until: Date().addingTimeInterval(Self.warmUpSeconds))
+        session.startRunning()
+        guard session.isRunning else { throw RecorderError.noInputDevice }
+
+        capture = session
+        captureSink = sink
+        lastInputFormat = "capture from \(device.localizedName)"
+        startedAt = Date()
+        lastRecordingWasDead = false
+        isRecording = true
+    }
+
+    /// Takes capture buffers on the capture queue and puts them in the same sample
+    /// buffer the engine writes to, so everything downstream is shared.
+    private final class CaptureSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+        private let buffer: SampleBuffer
+        private let onLevel: @Sendable (Float) -> Void
+
+        init(buffer: SampleBuffer, onLevel: @escaping @Sendable (Float) -> Void) {
+            self.buffer = buffer
+            self.onLevel = onLevel
+        }
+
+        func captureOutput(
+            _ output: AVCaptureOutput,
+            didOutput sampleBuffer: CMSampleBuffer,
+            from connection: AVCaptureConnection
+        ) {
+            guard let block = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+            var length = 0
+            var pointer: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(
+                block, atOffset: 0, lengthAtOffsetOut: nil,
+                totalLengthOut: &length, dataPointerOut: &pointer
+            ) == kCMBlockBufferNoErr, let pointer else { return }
+
+            let count = length / MemoryLayout<Float>.size
+            let samples = pointer.withMemoryRebound(to: Float.self, capacity: count) {
+                Array(UnsafeBufferPointer(start: $0, count: count))
+            }
+            buffer.append(samples)
+            onLevel(Recorder.rms(samples))
+        }
+    }
+    #endif
 
     /// Keeps the engine running but stops keeping what it hears.
     ///
@@ -323,9 +510,7 @@ public final class Recorder {
             return []
         }
 
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        converter = nil
+        stopCapturing()
 
         #if os(iOS)
         // Handing the route back matters: whatever the user was playing before they
@@ -383,7 +568,7 @@ public final class Recorder {
     }
     #endif
 
-    private static func convert(
+    nonisolated private static func convert(
         _ buffer: AVAudioPCMBuffer,
         with converter: AVAudioConverter,
         to target: AVAudioFormat
@@ -407,7 +592,7 @@ public final class Recorder {
         return Array(UnsafeBufferPointer(start: channel, count: Int(out.frameLength)))
     }
 
-    private static func rms(_ samples: [Float]) -> Float {
+    nonisolated private static func rms(_ samples: [Float]) -> Float {
         guard !samples.isEmpty else { return 0 }
         let mean = samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)
         // Map roughly -50 dB...0 dB onto 0...1 so quiet speech still moves the bars.

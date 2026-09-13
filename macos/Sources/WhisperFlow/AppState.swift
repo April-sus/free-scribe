@@ -103,6 +103,14 @@ final class AppState: ObservableObject {
             if levels.count > 48 { levels.removeFirst(levels.count - 48) }
         }
         Sounds.enabled = soundsEnabled
+        // The microphone vanished mid-dictation and could not be reopened. Without
+        // this the pill would sit on "Listening…" for a recording that had ended.
+        recorder.onInputLost = { [weak self] _ in
+            guard let self else { return }
+            phase = .error("The microphone went away mid-dictation — press the shortcut to start again")
+            Sounds.play(.failed)
+            pill.flash(self)
+        }
         hotkey = Hotkey(state: self)
 
         // Whether to show the window at launch is decided by the app delegate,

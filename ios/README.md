@@ -1,51 +1,125 @@
 # Free Scribe for iOS
 
-Not a port of the desktop app. Two of its central decisions cannot exist here:
+An app plus a keyboard. iOS does not let an app extension record audio, so the
+**app** holds the microphone and runs Whisper, and the **keyboard** tells it when to
+start and stop and types back what comes out. The Action button can start dictation
+too. Everything runs on the phone; nothing is sent anywhere.
 
-- **No global shortcut.** iOS has no system-wide hotkey, and no app may type into
-  another app's text field. The only mechanism that can is a **keyboard extension**,
-  which is why the app is shaped around one.
-- **No child processes.** The translation sidecar both desktop builds use cannot run
-  in the iOS sandbox, and MADLAD at 2.8GB is not a phone download in any case.
+The transcript processing (scribe rules, filler cleanup, history, vocabulary) is the
+shared `core/` package, the same code the Mac app uses.
 
-What does carry over is `core/` — the NAPLAN scribe rules, filler cleanup, history,
-search, statistics and model selection — which is why that package was separated out
-and why CI builds it for iOS on every push.
+## What you need
 
-## The measurement everything depends on
+- A Mac with **Xcode 16 or newer** (iOS 18 SDK)
+- **XcodeGen**, which generates the Xcode project from `project.yml`:
+  ```bash
+  brew install xcodegen
+  ```
+- An **iPhone on iOS 18 or newer** with Developer Mode on
+  (Settings → Privacy & Security → Developer Mode)
+- An Apple ID signed in to Xcode (Xcode → Settings → Accounts). A free account works;
+  its apps expire after 7 days and have to be reinstalled.
 
-A keyboard extension is given far less memory than an app, and the ceiling is not
-documented. Whether WhisperKit can load inside one decides the architecture:
+## Build and install
 
-- **If it fits** — the keyboard transcribes directly, and dictation works the moment
-  you switch to it.
-- **If it does not** — the keyboard records and hands the audio to the containing app
-  through a shared app group, which is slower and more fragile.
+### 1. Fetch the bundled model
 
-`memory-probe/` exists to answer that before anything is built on top of it.
+The app ships with `base.en` inside it (~145 MB) so dictation works with no download.
+It is not in the repository:
 
-## What the probe found
+```bash
+cd ios
+./fetch-model.sh
+```
 
-| | simulator | iPhone 16 Pro |
-|---|---|---|
-| app at launch | 17.4 MB | **8.6 MB** |
-| after loading `tiny.en` | 35.1 MB | **18.9 MB** |
+Safe to run again; files already there are skipped.
 
-The simulator overstated the cost by nearly double. On the device the smallest model
-adds about 10MB, against an extension ceiling historically around 48-60MB — so
-**tiny.en fits comfortably**, and the keyboard can transcribe on its own rather than
-handing audio to the containing app.
+### 2. Use your own signing team and IDs
 
-The device also proved the hardware tiering, which the simulator could not: with 7GB
-free it chose `base.en`, where the simulator — seeing the host Mac's 492GB — had
-chosen the largest model.
+Skip this if you are building on the original developer's account.
 
-Still open: only `tiny.en` has been measured, and the ceiling itself is enforced only
-on device, so the figure to watch is the one the keyboard reports rather than the app.
+Bundle and App Group IDs are unique across all of Apple, so yours must differ.
+In `ios/project.yml`, change:
 
-## Next
+| Setting | Change to |
+|---|---|
+| `DEVELOPMENT_TEAM: RDDHPR73MC` | your Team ID (Xcode → Settings → Accounts → your team) |
+| `bundleIdPrefix: local.freescribe` | something of yours, e.g. `com.yourname.freescribe` |
+| `PRODUCT_BUNDLE_IDENTIFIER: local.freescribe.FreeScribe.Keyboard` | `<your prefix>.FreeScribe.Keyboard` |
+| `group.local.freescribe.shared` (both targets) | `group.<your prefix>.shared` |
 
-1. Run the same probe on a device, inside the keyboard rather than the app.
-2. If it fits: audio capture in the extension, which needs `RequestsOpenAccess`.
-3. If it does not: the keyboard records and the containing app transcribes, through
-   a shared app group.
+Then set the same App Group in `core/Sources/WhisperFlowCore/Transcriber.swift`:
+
+```swift
+public static let appGroup = "group.<your prefix>.shared"
+```
+
+The app and the keyboard share the model and history through that group. If the
+two don't match, the keyboard can't see anything the app writes.
+
+### 3. Generate the project
+
+```bash
+xcodegen generate
+```
+
+Run this again whenever `project.yml` changes or files are added. The generated
+`FreeScribe.xcodeproj` is not committed.
+
+### 4. Run it on the phone
+
+**From Xcode:** open `FreeScribe.xcodeproj`, pick the **FreeScribe** scheme and
+your iPhone as the destination, and press ⌘R. Xcode creates the provisioning profiles
+on the first build.
+
+**From the terminal:**
+
+```bash
+xcrun devicectl list devices          # find your phone's identifier
+xcodebuild -project FreeScribe.xcodeproj -scheme FreeScribe \
+  -destination 'platform=iOS,id=<device-id>' \
+  -allowProvisioningUpdates -derivedDataPath build build
+xcrun devicectl device install app --device <device-id> \
+  build/Build/Products/Debug-iphoneos/FreeScribe.app
+```
+
+On a free account, the first launch is blocked until you trust the developer:
+Settings → General → VPN & Device Management → your Apple ID → Trust.
+
+If an install fails with "unable to locate device", unlock the phone and run
+`xcrun devicectl device info details --device <device-id>` first. That wakes the
+developer disk image, then retry.
+
+### 5. First run
+
+The app walks you through setup:
+
+1. Allow the microphone.
+2. Add the keyboard: Settings → General → Keyboard → Keyboards → Add New Keyboard →
+   **Free Scribe**.
+3. Turn on **Allow Full Access** on the same screen. The keyboard needs it to read
+   transcripts from the app's shared storage. It has no network code, so nothing
+   leaves the phone.
+4. Try a practice dictation.
+
+To use the Action button: Settings → Action Button → Shortcut → **Free Scribe**.
+
+## Using it
+
+Switch to the Free Scribe keyboard (🌐) and tap the microphone. The first time, the
+keyboard opens the app so it can take the microphone. After that the app keeps
+listening in the background, and later taps dictate without leaving the app you're
+typing in.
+
+If the audio route changes mid-session (AirPods removed, say), the app moves to
+whichever microphone is left. If iOS won't allow that from the background, the
+keyboard shows "not ready", and the next tap brings the app forward to reopen it.
+
+## Checks
+
+```bash
+cd ../core && swift test
+```
+
+Settings → Debug mode in the app shows live state and the log. The log is also
+written to the shared container, so the keyboard's side shows up there too.
