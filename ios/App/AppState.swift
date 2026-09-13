@@ -140,6 +140,26 @@ final class AppState: ObservableObject {
     init() {
         Sounds.enabled = soundsEnabled
 
+        // The route changed — AirPods out, say — and iOS would not reopen a
+        // microphone from the background. Keep what was said, and stop claiming to be
+        // ready: the keyboard then says so, and the next press brings the app forward
+        // to open one again rather than recording from a stream that no longer exists.
+        recorder.onInputLost = { [weak self] kept in
+            guard let self else { return }
+            if self.recording {
+                self.watchdog?.invalidate()
+                self.recording = false
+                self.level = 0
+                Handoff.publish(level: 0)
+                if Double(kept.count) / Recorder.sampleRate >= Recorder.minimumSeconds {
+                    Task { await self.dictate(kept) }
+                } else {
+                    self.phase = .idle
+                }
+            }
+            self.stopListening()
+        }
+
         // A phone call, Siri, or another app taking the microphone. Without this the
         // app sits in "listening" with a stream that has been taken away from it.
         NotificationCenter.default.addObserver(
